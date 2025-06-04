@@ -1,5 +1,5 @@
 # .github/workflows/build-without-container.yml
-name: Build Void Live ISO (Use Official Binaries)
+name: Build Void Live ISO (Use Official Binaries Only, No mklive.sh Patch)
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ on:
         required: false
         type: string
       extra_packages:
-        description: "自选额外包 (空格分隔，留空则只安装 base-system、squashfs-tools、kmod、runit)"
+        description: "自选额外包 (空格分隔，留空则只安装 base-system、runit、squashfs-tools、kmod)"
         default: "xfce4 xfce4-terminal network-manager-applet dbus-elogind"
         required: false
         type: string
@@ -36,24 +36,25 @@ jobs:
         uses: actions/checkout@v4
 
       # ─────────────────────────────────────────────────────────────
-      # 2) 在 Ubuntu Runner 上安装 mklive.sh 所需的所有宿主工具
+      # 2) 安装 mklive.sh 生成 ISO 所需的所有宿主包 (不安装宿主 dracut)
       #
-      #    - curl、tar、xz-utils         （下载并解压 xbps-static）
-      #    - bubblewrap                  （xbps-uchroot 隔离依赖）
-      #    - squashfs-tools、kmod        （打 squashfs）
-      #    - grub2-common、grub-pc-bin、grub-efi-amd64-bin  （生成 GRUB 引导）
-      #    - genisoimage、mtools         （制作 ISO 文件、刻盘工具）
-      #    - make、gettext、file、gnupg 等辅助工具
-      #    —— 注意：不在宿主安装 dracut，避免触发 Ubuntu 的 initramfs 更新错误
+      #    安装清单：
+      #      • curl、tar、xz-utils      （下载并解压 xbps-static）
+      #      • bubblewrap               （xbps-uchroot 隔离）
+      #      • squashfs-tools、kmod     （制作 squashfs 根文件系统）
+      #      • grub2-common、grub-pc-bin、grub-efi-amd64-bin  （配置 GRUB）
+      #      • genisoimage、mtools      （制作 ISO，刻盘工具）
+      #      • make、gettext、file、gnupg  等辅助工具
+      #    注意：不在宿主上安装 dracut，以免触发 Ubuntu 本机的 initramfs 更新错误。
       # ─────────────────────────────────────────────────────────────
-      - name: Install dependencies on ubuntu-latest
+      - name: Install host dependencies
         run: |
           set -euxo pipefail
 
           # 更新 apt 索引
           sudo apt-get update
 
-          # 安装 mklive.sh 需要的命令行工具，注意不安装宿主的 dracut
+          # 安装所有 mklive.sh 需要的命令行工具
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates \
             curl \
@@ -76,51 +77,68 @@ jobs:
           # 清理 apt 缓存，节省磁盘空间
           sudo rm -rf /var/lib/apt/lists/*
 
-          # ── 下载并解压 xbps-static（musl 版，以支持多种架构） ──
+          # ── 下载并解压 xbps-static（musl 版） ──
           sudo mkdir -p /opt/xbps
           curl -L https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz \
             | sudo tar -xJ -C /opt/xbps
           sudo chmod -R a+rx /opt/xbps
 
-          # 把 xbps-static 里的可执行程序链接到 /usr/local/bin
+          # 链接 xbps-static 的可执行程序到 /usr/local/bin
           for tool in xbps-install.static xbps-query.static xbps-rindex.static xbps-uhelper.static xbps-uchroot.static xbps-uunshare.static; do
             sudo ln -sf /opt/xbps/usr/bin/$tool /usr/local/bin/${tool%.static}
           done
 
       # ─────────────────────────────────────────────────────────────
-      # 3) **打补丁**：在 mklive.sh 里插入“创建 /var/tmp、/etc/modules-load.d、/etc/runit/runsvdir/default” 的语句
+      # 3) 生成固定的 $BUILDDIR，预先在 $BUILDDIR/void-host 下创建下面这些目录：
       #
-      #    这样，当 mklive.sh 进入 chroot 安装完成“base-system + runit + squashfs-tools + kmod”后，
-      #    它才会去写 dm-raid.conf、去往 runit 目录打 symlink、去调用 dracut。
-      #    我们把补丁直接用 sed 插在“定义好 CHROOT 变量之后”的第一行，示例如下。
+      #    预先创建目录列表：
+      #      • /var/tmp
+      #      • /etc/modules-load.d
+      #      • /etc/runit/runsvdir/default
+      #
+      #    这样才能保证后续 mklive.sh 运行时：
+      #      – 安装 base-system 时，需要 /etc/modules-load.d 存在才能写 dm-raid.conf
+      #      – 安装 runit 时，需要 /etc/runit/runsvdir/default 存在才能打 symlink
+      #      – dracut 在 chroot 中需要 /var/tmp 存放临时文件
+      #
+      #    【注意】这里无需修改 mklive.sh，全部在调用它之前完成目录准备。
       # ─────────────────────────────────────────────────────────────
-      - name: Patch mklive.sh to create missing directories
+      - name: Prepare fixed build directory
         run: |
           set -euxo pipefail
 
-          # 在 mklive.sh 中搜索 “CHROOT=” 那一行（大多数版本里这一行会长得像： CHROOT="${BUILDDIR}/void-host" ）
-          # 然后在它的下一行插入创建目录的命令：
-          sed -i '/^CHROOT=/a \
-          # —— BEGIN auto-create missing dirs \
-          mkdir -p "$CHROOT"/var/tmp && \
-          mkdir -p "$CHROOT"/etc/modules-load.d && \
-          mkdir -p "$CHROOT"/etc/runit/runsvdir/default \
-          # —— END auto-create missing dirs
-          ' ./mklive.sh
+          # 定义一个固定的构建目录（mklive.sh 会使用它，而不是 mktemp）
+          # 例如： $GITHUB_WORKSPACE/buildroot
+          export BUILDDIR="${GITHUB_WORKSPACE}/buildroot"
+
+          # 先删除旧的（如果有），再重新创建：
+          sudo rm -rf "$BUILDDIR"
+          mkdir -p "$BUILDDIR"
+
+          # chroot 根目录会在 "$BUILDDIR/void-host"
+          mkdir -p "$BUILDDIR/void-host/var/tmp"
+          mkdir -p "$BUILDDIR/void-host/etc/modules-load.d"
+          mkdir -p "$BUILDDIR/void-host/etc/runit/runsvdir/default"
+
+          # 确保权限正确：
+          sudo chown -R $USER:$USER "$BUILDDIR"
 
       # ─────────────────────────────────────────────────────────────
-      # 4) 调用 mklive.sh（注意加 sudo），并且在安装包列表里**加入 runit**，保证 /etc/runit 下有目录存在
+      # 4) 调用 mklive.sh（注意加 sudo），环境变量指定：
+      #        BUILDDIR="${BUILDDIR}"
+      #    这样脚本内部不会用 mktemp 创建随机目录，而是用我们提前准备好的 "$BUILDDIR"
       #
-      #    -r 官方仓库地址： https://repo-default.voidlinux.org/current
-      #    -p 安装包列表： base-system、squashfs-tools、kmod、runit，以及 extra_packages
-      #    -S 额外 runit 服务 (如果有)
-      #    -o 输出文件名： void-<ARCH>-<DATECODE>.iso
+      #    同时在包列表里额外加入 runit，以确保 /etc/runit/runsvdir/default 存在
+      #
+      #    官方二进制仓库： https://repo-default.voidlinux.org/current
+      #
+      #    生成的 ISO 名称： void-<ARCH>-<DATECODE>.iso
       # ─────────────────────────────────────────────────────────────
       - name: Build ISO via mklive.sh
         run: |
           set -euxo pipefail
 
-          # 计算 DATECODE：如果留空就取今天 UTC (YYYYMMDD)
+          # 计算 DATECODE：若用户留空，就取今天 UTC (YYYYMMDD)
           if [ -z "${{ inputs.datecode }}" ]; then
             DATECODE="$(date -u +%Y%m%d)"
           else
@@ -131,10 +149,8 @@ jobs:
           EXTRA_PKGS="${{ inputs.extra_packages }}"
           EXTRA_SVCS="${{ inputs.extra_services }}"
 
-          # 确保脚本可执行
-          chmod +x ./mklive.sh
-
-          # 基本包：必须先装 base-system、runit、squashfs-tools、kmod
+          # 基本包列表：base-system、runit、squashfs-tools、kmod
+          # “runit” 包会自动创建 /etc/runit/runsvdir/default 以及启动脚本所需的结构
           PKG_STR="base-system runit squashfs-tools kmod"
           if [ -n "$EXTRA_PKGS" ]; then
             PKG_STR="$PKG_STR $EXTRA_PKGS"
@@ -147,11 +163,19 @@ jobs:
             SVC_ARG=""
           fi
 
-          # 以 sudo 运行 mklive.sh，mklive.sh 内部会：
-          #  1) 在 "$PWD/mklive-build.xxx/void-host" 下创建 chroot，xbps-install -R <repo> $PKG_STR 
-          #  2) 我们已在补丁里插了“mkdir -p /var/tmp /etc/modules-load.d /etc/runit/runsvdir/default”
-          #     因此后续写 dm-raid.conf、打 runit symlink、调用 dracut 都不会报找不到目录错误
-          sudo ./mklive.sh \
+          # 让 mklive.sh 使用我们固定的 BUILDDIR：
+          export BUILDDIR="${GITHUB_WORKSPACE}/buildroot"
+
+          # 确保脚本可执行
+          chmod +x ./mklive.sh
+
+          # 以 sudo 身份运行 mklive.sh：
+          #   -a 指定架构
+          #   -r 指定官方仓库
+          #   -p 指定包列表（含 runit）
+          #   -S 指定 runit 要启用的服务
+          #   -o 指定输出 ISO 文件名
+          sudo BUILDDIR="$BUILDDIR" ./mklive.sh \
             -a "$ARCH" \
             -r https://repo-default.voidlinux.org/current \
             -p "$PKG_STR" \
