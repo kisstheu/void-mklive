@@ -14,24 +14,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install dependencies
+      - name: Install host dependencies
         run: |
           sudo apt update
           sudo apt install -y xz-utils lzop dosfstools e2fsprogs squashfs-tools \
-            binutils bzip2 curl ca-certificates git
+            binutils bzip2 curl ca-certificates git gawk build-essential \
+            texinfo unzip libarchive-tools libtool autopoint gettext
+
+      - name: Install bsdtar and symlink it
+        run: |
+          sudo apt install -y bsdtar
+          sudo ln -sf /usr/bin/bsdtar /usr/bin/tar
 
       - name: Download xbps-static
         run: |
-          curl -LO https://alpha.de.repo.voidlinux.org/static/xbps-static-latest.tar.xz
+          curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.tar.xz
           tar -xf xbps-static-latest.tar.xz
           sudo mv xbps-static /opt/xbps
           echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
 
-      - name: Clone void-mklive
+      - name: Clone void-packages
         run: |
-          git clone https://github.com/void-linux/void-mklive
-          cd void-mklive
-          chmod +x mklive.sh
+          git clone https://github.com/void-linux/void-packages
+
+      - name: Binary bootstrap
+        run: |
+          cd void-packages
+          ./xbps-src binary-bootstrap
 
       - name: Set DATECODE
         id: date
@@ -42,13 +51,29 @@ jobs:
             echo "datecode=${{ inputs.datecode }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build ISO
+      - name: Build base-system
+        run: |
+          cd void-packages
+          ./xbps-src -N pkg base-system
+
+      - name: Index local repository
+        run: |
+          cd void-packages
+          /opt/xbps/usr/bin/xbps-rindex -a hostdir/binpkgs/*.xbps
+
+      - name: Clone void-mklive
+        run: |
+          git clone https://github.com/void-linux/void-mklive
+          cd void-mklive
+          make
+
+      - name: Build ISO with local repo
         run: |
           cd void-mklive
           sudo ./mklive.sh \
             -a x86_64 \
-            -o void-x86_64-${{ steps.date.outputs.datecode }}.iso \
-            -r https://repo-default.voidlinux.org/current
+            -r ../void-packages/hostdir/binpkgs \
+            -o void-x86_64-${{ steps.date.outputs.datecode }}.iso
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
