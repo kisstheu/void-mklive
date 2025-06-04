@@ -66,7 +66,6 @@ jobs:
           EXTRA_PKGS="${{ inputs.packages }}"
           EXTRA_SVCS="${{ inputs.services }}"
 
-          # 在容器里运行
           docker run --rm --privileged \
             -e DATECODE="$DATE" \
             -e ARCH="$ARCH" \
@@ -76,32 +75,29 @@ jobs:
             -w /workspace \
             my-void-builder \
             bash -euxo pipefail -c '
-              # 先组包：必须把 squashfs-tools、kmod 放最前
-              BASE_PKGS=(squashfs-tools kmod)
-              if [ -n "$EXTRA_PKGS" ]; then
-                read -r -a ADD_PKGS <<< "$EXTRA_PKGS"
-                PKGS=( "${BASE_PKGS[@]}" "${ADD_PKGS[@]}" )
-              else
-                PKGS=( "${BASE_PKGS[@]}" )
-              fi
-
-              # 再组服务
-              if [ -n "$EXTRA_SVCS" ]; then
-                SRV=( -S "$EXTRA_SVCS" )
-              else
-                SRV=()
-              fi
-
-              # 编译 mklive（若已编译会跳过大部分）
+              # 编译 mklive 本身（若已编译会跳过）
               make
 
-              # 调用 mklive.sh，直接传入数组展开
-              ./mklive.sh \
-                -a "$ARCH" \
+              # 构建 -p 字符串，确保 squashfs-tools 始终在最前
+              PKG_STR="squashfs-tools kmod"
+              if [ -n "$EXTRA_PKGS" ]; then
+                PKG_STR="$PKG_STR $EXTRA_PKGS"
+              fi
+
+              # 构建 -S 部分
+              if [ -n "$EXTRA_SVCS" ]; then
+                SRV_ARG="-S \"$EXTRA_SVCS\""
+              else
+                SRV_ARG=""
+              fi
+
+              # 调用 mklive.sh：直接传一个带空格的字符串给 -p
+              eval "./mklive.sh \
+                -a \"$ARCH\" \
                 -r https://repo-default.voidlinux.org/current \
-                -p "${PKGS[@]}" \
-                "${SRV[@]}" \
-                -o "void-${ARCH}-custom-${DATECODE}.iso"
+                -p \"$PKG_STR\" \
+                $SRV_ARG \
+                -o \"void-$ARCH-custom-$DATECODE.iso\""
             '
 
       # 4) 上传生成的 ISO
