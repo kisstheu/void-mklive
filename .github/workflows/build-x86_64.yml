@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout void-mklive
+        uses: actions/checkout@v4
+
       - name: Install host dependencies
         run: |
           sudo apt update
@@ -25,22 +28,19 @@ jobs:
         run: |
           set -e
 
-          # 1. 下载最新 musl 静态包 (x86_64-musl 版)
+          # 下载最新 musl 静态包 (x86_64-musl)
           curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz
 
-          # 2. 解压到 /opt/xbps：解出来的 usr/ 就是我们要的二进制目录
+          # 解压到 /opt/xbps
           sudo mkdir -p /opt/xbps
           sudo tar -xf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps
 
-          #    注意：解压后会得到 /opt/xbps/usr 和 /opt/xbps/var 两个目录，
-          #    其中 /opt/xbps/usr/bin/xbps-* 就是运行时所需的所有工具。
-
-          # 3. 把 /opt/xbps/usr/bin 加入 PATH
+          # 将 /opt/xbps/usr/bin 加入 PATH
           echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
 
       - name: Clone void-packages
         run: |
-          git clone https://github.com/void-linux/void-packages
+          git clone https://github.com/void-linux/void-packages.git
 
       - name: Binary bootstrap
         run: |
@@ -66,26 +66,22 @@ jobs:
           cd void-packages
           /opt/xbps/usr/bin/xbps-rindex -a hostdir/binpkgs/*.xbps
 
-      - name: Clone void-mklive
+      - name: Build void-mklive
         run: |
-          git clone https://github.com/void-linux/void-mklive
-          cd void-mklive
+          # void-mklive code is in working directory
+          cd .
           make
 
       - name: Build ISO with local repo
         run: |
-          cd void-mklive
+          cd .
           sudo ./mklive.sh \
             -a x86_64 \
-            -r ../void-packages/hostdir/binpkgs \
+            -r void-packages/hostdir/binpkgs \
             -o void-x86_64-${{ steps.date.outputs.datecode }}.iso
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
           name: void-x86_64-${{ steps.date.outputs.datecode }}.iso
-          path: void-mklive/void-x86_64-${{ steps.date.outputs.datecode }}.iso
-        uses: actions/upload-artifact@v4
-        with:
-          name: void-x86_64-${{ steps.date.outputs.datecode }}.iso
-          path: void-mklive/void-x86_64-${{ steps.date.outputs.datecode }}.iso
+          path: void-x86_64-${{ steps.date.outputs.datecode }}.iso
