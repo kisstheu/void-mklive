@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl git xz-utils lzop dosfstools e2fsprogs \
-        squashfs-tools kmod util-linux genisoimage mtools \
+        libarchive-tools squashfs-tools kmod util-linux genisoimage mtools \
         build-essential && \
     rm -rf /var/lib/apt/lists/*
 
