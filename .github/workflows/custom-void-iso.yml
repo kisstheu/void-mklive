@@ -38,7 +38,7 @@ jobs:
           RUN apt-get update && \
               apt-get install -y --no-install-recommends \
                   ca-certificates curl git xz-utils lzop dosfstools e2fsprogs \
-                  squashfs-tools kmod util-linux genisoimage mtools && \
+                  squashfs-tools kmod util-linux genisoimage mtools make && \
               rm -rf /var/lib/apt/lists/*
 
           # xbps-static (musl) for xbps-install inside container
