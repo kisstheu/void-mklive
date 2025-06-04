@@ -4,18 +4,21 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates curl git xz-utils lzop dosfstools e2fsprogs \
-        squashfs-tools binutils build-essential gawk texinfo bubblewrap \
-        bzip2 unzip libarchive-tools libtool autopoint gettext && \
+        squashfs-tools binutils build-essential gawk texinfo \
+        bubblewrap sudo bzip2 unzip libarchive-tools libtool autopoint gettext \
+        bsdtar && \
     rm -rf /var/lib/apt/lists/*
 
-# 下载最新 musl 版 xbps-static 并解压到 /opt/xbps
+# ── 安装 xbps-static (musl 版即可) ────────────────────────────────
 RUN curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz && \
     mkdir -p /opt/xbps && \
     bsdtar -xpf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps && \
     chmod -R a+rx /opt/xbps
 
-ENV PATH=/opt/xbps/usr/bin:${PATH}
+ENV PATH=/opt/xbps/usr/bin:$PATH
 
-# 创建非特权用户 builder，赋予密码免 sudo
+# ── 创建 builder 非特权用户 ─────────────────────────────────────
 RUN useradd -m builder && \
-    echo "builder ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/builder
+    mkdir -p /etc/sudoers.d && \
+    echo "builder ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/builder && \
+    chmod 0440 /etc/sudoers.d/builder
