@@ -115,7 +115,7 @@ jobs:
           sudo chown -R $USER:$USER "$VOID_ROOT"
 
       # ────────────────────────────────────────────────────────────
-      # 4) （无需“手动导入公钥”，后面用 XBPS_ALLOW_UNTRUSTED=1 跳过签名检查）
+      # 4) （无需“手动导入公钥”，因为后面用 XBPS_ALLOW_UNTRUSTED=1 跳过签名验证）
       # ────────────────────────────────────────────────────────────
 
       # ────────────────────────────────────────────────────────────
@@ -123,6 +123,9 @@ jobs:
       #
       #    必须通过 XBPS_TARGET_ARCH="$ARCH" 来指定架构，
       #    并且用 XBPS_ALLOW_UNTRUSTED=1 跳过签名验证。
+      #
+      #    关键：这里保留 `-S`，让它先同步索引；再加 `XBPS_ALLOW_UNTRUSTED=1`，
+      #    跳过签名检测，避免交互式导入公钥。
       #
       #    安装的包：base-system、runit、squashfs-tools、kmod + 输入的 extra_packages
       # ────────────────────────────────────────────────────────────
@@ -139,9 +142,10 @@ jobs:
             PKG_LIST="$PKG_LIST $EXTRA_PKGS"
           fi
 
-          # 关键：去掉 -S，同步交给 xbps-install 自行处理。加上 XBPS_ALLOW_UNTRUSTED=1 跳过签名检查。
-          sudo env XBPS_TARGET_ARCH="$ARCH" XBPS_ALLOW_UNTRUSTED=1 \
-            xbps-install -y \
+          # 关键行：保留 -S 以同步索引；加上 XBPS_ALLOW_UNTRUSTED=1 跳过签名验证
+          sudo env XBPS_TARGET_ARCH="$ARCH" \
+            XBPS_ALLOW_UNTRUSTED=1 \
+            xbps-install -S -y \
               -R https://repo-default.voidlinux.org/current \
               -r "$VOID_ROOT" \
               $PKG_LIST
