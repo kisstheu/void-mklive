@@ -38,20 +38,23 @@ jobs:
             void-builder:latest \
             bash -c '
               set -e
-              # 2.1 clone void-packages（浅克隆即可）
-              git clone --depth 1 https://github.com/void-linux/void-packages.git
-              cd void-packages
-              # 2.2 强制使用 bwrap chroot
-              echo "XBPS_CHROOT_CMD=bwrap" >> etc/conf
-              ./xbps-src binary-bootstrap
-              ./xbps-src -N pkg base-system
-              xbps-rindex -a hostdir/binpkgs/*.xbps
-              cd ..
-              # 2.3 编译本仓库中的 mklive 并产出 ISO
-              make
-              sudo ./mklive.sh -a x86_64 \
-                   -r void-packages/hostdir/binpkgs \
-                   -o void-x86_64-${DATECODE}.iso
+             # ----- 1) 以 builder 身份编译 base-system -----
+              chown -R builder:builder /workspace
+              su builder -c "
+                git clone --depth 1 https://github.com/void-linux/void-packages.git
+                cd void-packages
+                echo XBPS_CHROOT_CMD=bwrap >> etc/conf
+                ./xbps-src binary-bootstrap
+                ./xbps-src -N pkg base-system
+                xbps-rindex -a hostdir/binpkgs/*.xbps
+              "
+
+              # ----- 2) 用 root 运行 mklive.sh 生成 ISO -----
+              make           # 编译 mklive
+              ./mklive.sh \
+                -a x86_64 \
+                -r /workspace/void-packages/hostdir/binpkgs \
+                -o /workspace/void-x86_64-${DATECODE}.iso
             '
 
       # 3) 上传产物
