@@ -31,12 +31,17 @@ jobs:
           # 下载最新 musl 静态包 (x86_64-musl)
           curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz
 
-          # 解压到 /opt/xbps
+          # 解压到 /opt/xbps，使用 bsdtar 以保留符号链接
           sudo mkdir -p /opt/xbps
-          sudo tar -xf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps
+          sudo bsdtar -xpf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps
 
           # 将 /opt/xbps/usr/bin 加入 PATH
+          export PATH="/opt/xbps/usr/bin:$PATH"
           echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
+
+          # 查看解压后的可执行文件（调试用，可删）
+          ls -l /opt/xbps/usr/bin
+
 
       - name: Clone void-packages (shallow)
         run: |
