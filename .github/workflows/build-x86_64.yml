@@ -38,11 +38,13 @@ jobs:
           # 将 /opt/xbps/usr/bin 加入 PATH
           echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
 
-      - name: Clone void-packages
+      - name: Clone void-packages (shallow)
         run: |
           git clone --depth 1 https://github.com/void-linux/void-packages.git
 
       - name: Binary bootstrap
+        env:
+          PATH: "/opt/xbps/usr/bin:${{ env.PATH }}"
         run: |
           cd void-packages
           ./xbps-src binary-bootstrap
@@ -57,24 +59,27 @@ jobs:
           fi
 
       - name: Build base-system
+        env:
+          PATH: "/opt/xbps/usr/bin:${{ env.PATH }}"
         run: |
           cd void-packages
           ./xbps-src -N pkg base-system
 
       - name: Index local repository
+        env:
+          PATH: "/opt/xbps/usr/bin:${{ env.PATH }}"
         run: |
           cd void-packages
-          /opt/xbps/usr/bin/xbps-rindex -a hostdir/binpkgs/*.xbps
+          xbps-rindex -a hostdir/binpkgs/*.xbps
 
       - name: Build void-mklive
         run: |
-          # void-mklive code is in working directory
-          cd .
           make
 
       - name: Build ISO with local repo
+        env:
+          PATH: "/opt/xbps/usr/bin:${{ env.PATH }}"
         run: |
-          cd .
           sudo ./mklive.sh \
             -a x86_64 \
             -r void-packages/hostdir/binpkgs \
