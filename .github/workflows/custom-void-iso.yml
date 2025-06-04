@@ -115,7 +115,7 @@ jobs:
           sudo chown -R $USER:$USER "$VOID_ROOT"
 
       # ────────────────────────────────────────────────────────────
-      # 4)（此处移除“手动导入公钥”步骤，因为后面用 XBPS_ALLOW_UNTRUSTED=1，可以跳过签名检查）
+      # 4) （无需“手动导入公钥”，后面用 XBPS_ALLOW_UNTRUSTED=1 跳过签名检查）
       # ────────────────────────────────────────────────────────────
 
       # ────────────────────────────────────────────────────────────
@@ -139,11 +139,12 @@ jobs:
             PKG_LIST="$PKG_LIST $EXTRA_PKGS"
           fi
 
-          # 关键：用 XBPS_TARGET_ARCH="$ARCH" 指定拉哪个架构仓库，加上 XBPS_ALLOW_UNTRUSTED=1 跳过签名验证
-          sudo env XBPS_TARGET_ARCH="$ARCH" XBPS_ALLOW_UNTRUSTED=1 xbps-install -S \
-            -R https://repo-default.voidlinux.org/current \
-            -r "$VOID_ROOT" \
-            -y $PKG_LIST
+          # 关键：去掉 -S，同步交给 xbps-install 自行处理。加上 XBPS_ALLOW_UNTRUSTED=1 跳过签名检查。
+          sudo env XBPS_TARGET_ARCH="$ARCH" XBPS_ALLOW_UNTRUSTED=1 \
+            xbps-install -y \
+              -R https://repo-default.voidlinux.org/current \
+              -r "$VOID_ROOT" \
+              $PKG_LIST
 
       # ────────────────────────────────────────────────────────────
       # 6) 在 chroot 里创建一些 runit 所需的符号链接（保险操作）
