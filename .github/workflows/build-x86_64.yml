@@ -39,9 +39,6 @@ jobs:
           export PATH="/opt/xbps/usr/bin:$PATH"
           echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
 
-          # 查看解压后的可执行文件（调试用，可删）
-          ls -l /opt/xbps/usr/bin
-
 
       - name: Clone void-packages (shallow)
         run: |
