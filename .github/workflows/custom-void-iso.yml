@@ -1,0 +1,95 @@
+name: Custom Void ISO with official repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "Target arch (x86_64 / x86_64-musl …)"
+        default: "x86_64"
+        required: true
+        type: string
+      datecode:
+        description: "Optional datecode (defaults to today UTC)"
+        required: false
+        type: string
+      packages:
+        description: "Extra packages to install (space-separated)"
+        required: false
+        type: string
+      services:
+        description: "runit services to enable (space-separated)"
+        required: false
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) 拉取 fork 的 void-mklive 源码
+      - uses: actions/checkout@v4
+
+      # 2) Build 简易 Ubuntu 容器（含 mklive 所需工具）
+      - name: Build builder image
+        run: |
+          cat > Dockerfile <<'EOF'
+          FROM ubuntu:22.04
+          ENV DEBIAN_FRONTEND=noninteractive
+          RUN apt-get update && \
+              apt-get install -y --no-install-recommends \
+                  ca-certificates curl git xz-utils lzop dosfstools e2fsprogs \
+                  squashfs-tools kmod util-linux genisoimage mtools && \
+              rm -rf /var/lib/apt/lists/*
+
+          # xbps-static (musl) for xbps-install inside container
+          RUN curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz && \
+              mkdir -p /opt/xbps && \
+              tar -xf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps && \
+              chmod -R a+rx /opt/xbps
+          ENV PATH=/opt/xbps/usr/bin:$PATH
+          EOF
+          docker build -t my-void-builder - < Dockerfile
+
+      # 3) 运行 mklive.sh，手动传包 / 服务
+      - name: Build ISO
+        run: |
+          set -e
+          # 生成日期码
+          if [ -z "${{ inputs.datecode }}" ]; then
+            DATE=$(date -u +%Y%m%d)
+          else
+            DATE=${{ inputs.datecode }}
+          fi
+
+          EXTRA_PKGS="${{ inputs.packages }}"
+          EXTRA_SVCS="${{ inputs.services }}"
+          if [ -n "$EXTRA_PKGS" ]; then
+            PKG_OPT="-p \"$EXTRA_PKGS\""
+          else
+            PKG_OPT=""
+          fi
+          if [ -n "$EXTRA_SVCS" ]; then
+            SRV_OPT="-S \"$EXTRA_SVCS\""
+          else
+            SRV_OPT=""
+          fi
+
+          docker run --rm --privileged \
+            -v "$PWD":/workspace \
+            -w /workspace \
+            my-void-builder \
+            bash -c "set -e
+              make                          # 编译 mklive (仅第一次会生效)
+              ./mklive.sh \
+                -a \"${{ inputs.arch }}\" \
+                -r https://repo-default.voidlinux.org/current \
+                -p \"squashfs-tools kmod \$EXTRA_PKGS\" \
+                \$SRV_OPT \
+                -o void-${{ inputs.arch }}-custom-${DATE}.iso
+            "
+
+      # 4) 上传生成的 ISO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: void-${{ inputs.arch }}-custom-iso
+          path: void-*-custom-*.iso
