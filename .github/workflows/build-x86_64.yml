@@ -21,12 +21,25 @@ jobs:
             binutils bzip2 curl ca-certificates git gawk build-essential \
             texinfo unzip libarchive-tools libtool autopoint gettext
 
-      - name: Download xbps-static
+      - name: Download & install xbps-static
         run: |
-          curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz
-          tar -xf xbps-static-latest.x86_64-musl.tar.xz
-          sudo mv xbps-static /opt/xbps
+          set -e
+
+          # 1. 下载最新 glibc 静态包 (x86_64 版)
+          curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64.tar.xz
+
+          # 2. 解压到 /opt/xbps：解出来的 usr/ 就是我们要的二进制目录
+          sudo mkdir -p /opt/xbps
+          sudo tar -xf xbps-static-latest.x86_64.tar.xz -C /opt/xbps
+
+          #    注意：解压后会得到 /opt/xbps/usr 和 /opt/xbps/var 两个目录，
+          #    其中 /opt/xbps/usr/bin/xbps-* 就是运行时所需的所有工具。
+
+          # 3. 把 /opt/xbps/usr/bin 加入 PATH
           echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
+
+          # 4. 验证一下版本（可选）
+          xbps-install -V
 
       - name: Clone void-packages
         run: |
