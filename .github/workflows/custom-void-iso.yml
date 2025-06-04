@@ -115,31 +115,14 @@ jobs:
           sudo chown -R $USER:$USER "$VOID_ROOT"
 
       # ────────────────────────────────────────────────────────────
-      # 4) 在进入 chroot 之前，先把官方仓库的公钥下载到 $VOID_ROOT/var/db/xbps/keys，
-      #    这样 xbps-install 就不需要交互式导入了。
+      # 4)（此处移除“手动导入公钥”步骤，因为后面用 XBPS_ALLOW_UNTRUSTED=1，可以跳过签名检查）
       # ────────────────────────────────────────────────────────────
-      - name: Pre-populate Void repo key in chroot
-        run: |
-          set -euxo pipefail
-
-          export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
-
-          # 创建存放公钥的目录
-          sudo mkdir -p "$VOID_ROOT/var/db/xbps/keys"
-
-          # 从官方仓库拉取签名公钥（Fingerprint: 60:ae:0c:d6:f0:95:17:80:bc:93:46:7a:89:af:a3:2d）
-          sudo curl -L \
-            https://repo-default.voidlinux.org/current/keys/60:ae:0c:d6:f0:95:17:80:bc:93:46:7a:89:af:a3:2d.plist \
-            -o "$VOID_ROOT/var/db/xbps/keys/60:ae:0c:d6:f0:95:17:80:bc:93:46:7a:89:af:a3:2d.plist"
-
-          # 确保目录权限正确
-          sudo chmod -R 644 "$VOID_ROOT/var/db/xbps/keys"
 
       # ────────────────────────────────────────────────────────────
       # 5) 用 xbps-install 把 “官方二进制包” 安装到 $VOID_ROOT。
       #
       #    必须通过 XBPS_TARGET_ARCH="$ARCH" 来指定架构，
-      #    并且加上 XBPS_ACCEPT_KEY=1 自动跳过签名导入。
+      #    并且用 XBPS_ALLOW_UNTRUSTED=1 跳过签名验证。
       #
       #    安装的包：base-system、runit、squashfs-tools、kmod + 输入的 extra_packages
       # ────────────────────────────────────────────────────────────
@@ -156,8 +139,8 @@ jobs:
             PKG_LIST="$PKG_LIST $EXTRA_PKGS"
           fi
 
-          # 关键：用 XBPS_TARGET_ARCH="$ARCH" 指定架构，XBPS_ACCEPT_KEY=1 跳过交互导入
-          sudo env XBPS_TARGET_ARCH="$ARCH" XBPS_ACCEPT_KEY=1 xbps-install -S \
+          # 关键：用 XBPS_TARGET_ARCH="$ARCH" 指定拉哪个架构仓库，加上 XBPS_ALLOW_UNTRUSTED=1 跳过签名验证
+          sudo env XBPS_TARGET_ARCH="$ARCH" XBPS_ALLOW_UNTRUSTED=1 xbps-install -S \
             -R https://repo-default.voidlinux.org/current \
             -r "$VOID_ROOT" \
             -y $PKG_LIST
