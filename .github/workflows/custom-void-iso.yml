@@ -87,7 +87,7 @@ jobs:
               # 使用本地源码，先 make 一次
               make
 
-              # 组建 mkiso.sh 参数数组：注意 -b 代替 -f，并加 -d 传入日期
+              # 组建 mkiso.sh 参数数组：-a、-b、-d、-r
               ARGS=( "./mkiso.sh" "-a" "$ARCH" "-b" "$FLAVOR" "-d" "$DATECODE" "-r" "https://repo-default.voidlinux.org/current" )
 
               # 如果 extra_services 不为空，则加 -S
@@ -102,10 +102,7 @@ jobs:
                 ARGS+=( "-p" "${PKG_ARR[*]}" )
               fi
 
-              # 最后加上输出文件名
-              ARGS+=( "-o" "void-$ARCH-$FLAVOR-custom-$DATECODE.iso" )
-
-              # 执行 mkiso.sh
+              # 执行 mkiso.sh，输出文件名会被自动命名为 void-<arch>-<flavor>-<date>.iso
               "${ARGS[@]}"
             '
 
@@ -113,4 +110,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: void-${{ inputs.arch }}-${{ inputs.flavor }}-iso
-          path: void-*-*-custom-*.iso
+          path: void-*-*-*.iso
