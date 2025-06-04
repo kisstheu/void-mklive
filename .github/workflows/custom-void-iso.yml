@@ -19,10 +19,12 @@ on:
         type: string
       extra_packages:
         description: "额外要安装的包 (空格分隔，可留空)"
+        default: ""
         required: false
         type: string
       extra_services:
         description: "要启用的 runit 服务 (空格分隔，可留空)"
+        default: ""
         required: false
         type: string
 
@@ -56,15 +58,15 @@ jobs:
 
           docker build -t my-void-builder - < Dockerfile
 
-      # 3) 在容器里调用 mkiso.sh，先用 flavor，然后再加额外包/服务
+      # 3) 在容器里调用 mkiso.sh，传入用户选的 flavor 和额外包/服务
       - name: Build ISO with mkiso.sh
         run: |
           set -e
-          # 生成日期码
+          # 计算日期码：如果没有输入，就用今天 UTC
           if [ -z "${{ inputs.datecode }}" ]; then
-            DATE=$(date -u +%Y%m%d)
+            DATECODE=$(date -u +%Y%m%d)
           else
-            DATE=${{ inputs.datecode }}
+            DATECODE=${{ inputs.datecode }}
           fi
 
           ARCH="${{ inputs.arch }}"
@@ -73,7 +75,7 @@ jobs:
           EXTRA_SVCS="${{ inputs.extra_services }}"
 
           docker run --rm --privileged \
-            -e DATECODE="$DATE" \
+            -e DATECODE="$DATECODE" \
             -e ARCH="$ARCH" \
             -e FLAVOR="$FLAVOR" \
             -e EXTRA_PKGS="$EXTRA_PKGS" \
@@ -82,33 +84,28 @@ jobs:
             -w /workspace \
             my-void-builder \
             bash -euxo pipefail -c '
-              # 进入源代码目录，把本地 void-mklive 代码作为容器内的工作目录
-              # 由于 actions/checkout 已经把 void-mklive 代码放在 /workspace
-              # 所以无需再 git clone。接下来直接运行 mkiso.sh
-
-              # 如果你修改过 mkiso.sh，可以在这里先做 make，以保证最新代码被编译
+              # 使用本地源码，先 make 一次
               make
 
-              # 构建基本参数
+              # 组建参数数组
               ARGS=( "./mkiso.sh" "-a" "$ARCH" "-f" "$FLAVOR" "-r" "https://repo-default.voidlinux.org/current" )
 
-              # 如果 EXTRA_SVCS 不为空，就把 -S 参数加进去
+              # 如果 extra_services 不为空，则加 -S
               if [ -n "$EXTRA_SVCS" ]; then
                 read -r -a SVC_ARR <<< "$EXTRA_SVCS"
-                # 把服务列表展开成一个字符串
                 ARGS+=( "-S" "${SVC_ARR[*]}" )
               fi
 
-              # 如果 EXTRA_PKGS 不为空，就把 -p 参数加进去（这里会自动安装到 rootfs）
+              # 如果 extra_packages 不为空，则加 -p
               if [ -n "$EXTRA_PKGS" ]; then
                 read -r -a PKG_ARR <<< "$EXTRA_PKGS"
                 ARGS+=( "-p" "${PKG_ARR[*]}" )
               fi
 
-              # 指定输出文件名
-              ARGS+=( "-o" "void-$ARCH-$FLAVOR-custom-$DATE.iso" )
+              # 最后加上输出文件名，用 DATECODE 变量
+              ARGS+=( "-o" "void-$ARCH-$FLAVOR-custom-$DATECODE.iso" )
 
-              # 最终执行 mkiso.sh
+              # 执行 mkiso.sh
               "${ARGS[@]}"
             '
 
