@@ -1,0 +1,57 @@
+name: Void ISO using official repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      datecode:
+        description: "Optional datecode (default: today UTC)"
+        required: false
+        type: string
+      arch:
+        description: "Target arch (x86_64 / x86_64-musl …)"
+        default: "x86_64"
+        required: true
+        type: string
+      flavor:
+        description: "Live flavor (base / xfce / …)"
+        default: "base"
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 拉取你 fork 的 void-mklive 源码
+      - uses: actions/checkout@v4
+
+      # 2. 构建自定义容器（上面的 Dockerfile）
+      - name: Build builder image
+        run: docker build -t my-void-builder container
+
+      # 3. 在容器里调用 mklive.sh，直接用官方仓库
+      - name: Build ISO
+        run: |
+          set -e
+          if [ -z "${{ inputs.datecode }}" ]; then
+            DATE=$(date -u +%Y%m%d)
+          else
+            DATE=${{ inputs.datecode }}
+          fi
+
+          docker run --rm --privileged \
+            -v "$PWD":/workspace \
+            -w /workspace \
+            my-void-builder \
+            ./mklive.sh \
+              -a "${{ inputs.arch }}" \
+              -f "${{ inputs.flavor }}" \
+              -r https://repo-default.voidlinux.org/current \
+              -o void-${{ inputs.arch }}-${{ inputs.flavor }}-${DATE}.iso
+
+      # 4. 上传 ISO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: void-${{ inputs.arch }}-${{ inputs.flavor }}-iso
+          path: void-*-*.iso
