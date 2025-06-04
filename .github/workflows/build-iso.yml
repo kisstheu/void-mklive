@@ -51,7 +51,7 @@ jobs:
                 cd void-packages
                 echo XBPS_CHROOT_CMD=bwrap >> etc/conf
                 ./xbps-src binary-bootstrap
-                ./xbps-src -N pkg base-system
+                ./xbps-src -N pkg base-system squashfs-tools kmod
                 xbps-rindex -a hostdir/binpkgs/*.xbps
               "
           
