@@ -4,24 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       datecode:
-        description: 'Optional datecode (defaults to today UTC)'
+        description: "Optional datecode (defaults to today UTC)"
         required: false
         type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    # 1) 先用 Dockerfile 构出自定义镜像
     steps:
-      - name: Checkout repo (void-mklive fork)
-        uses: actions/checkout@v4
+      # 0) 取仓库代码（fork 的 void-mklive）
+      - uses: actions/checkout@v4
 
+      # 1) 构建自定义容器镜像
       - name: Build custom builder image
         run: |
           docker build -t void-builder:latest container
 
-      # 2) 在该镜像里完整跑“bootstrap ➜ base-system ➜ mklive”
+      # 2) 在容器里整套流程：bootstrap → base-system → mklive
       - name: Run build inside container
         run: |
           set -e
@@ -29,17 +28,20 @@ jobs:
           if [ -z "${{ inputs.datecode }}" ]; then
             DATECODE=$(date -u +%Y%m%d)
           else
-            DATECODE="${{ inputs.datecode }}"
+            DATECODE=${{ inputs.datecode }}
           fi
+
           docker run --rm --privileged \
             -e DATECODE="$DATECODE" \
             -v "$PWD":/workspace \
             -w /workspace \
-            void-builder:latest \
-            bash -c '
+            void-builder:latest bash -c '
               set -e
-             # ----- 1) 以 builder 身份编译 base-system -----
+
+              # (a) 让 builder 拥有 workspace
               chown -R builder:builder /workspace
+
+              # (b) builder: clone void-packages (浅克隆) + bootstrap + base-system
               su builder -c "
                 git clone --depth 1 https://github.com/void-linux/void-packages.git
                 cd void-packages
@@ -49,10 +51,9 @@ jobs:
                 xbps-rindex -a hostdir/binpkgs/*.xbps
               "
 
-              # ----- 2) 用 root 运行 mklive.sh 生成 ISO -----
-              make           # 编译 mklive
-              ./mklive.sh \
-                -a x86_64 \
+              # (c) root: 编译 mklive 并生成 ISO
+              make                    # build mklive from current repo sources
+              ./mklive.sh -a x86_64 \
                 -r /workspace/void-packages/hostdir/binpkgs \
                 -o /workspace/void-x86_64-${DATECODE}.iso
             '
@@ -61,5 +62,5 @@ jobs:
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
-          name: void-x86_64-${{ inputs.datecode || env.DATECODE }}
+          name: void-x86_64-${{ inputs.datecode || '' }}
           path: void-x86_64-*.iso
