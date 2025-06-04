@@ -1,5 +1,5 @@
-# .github/workflows/build-with-official-binaries.yml
-name: Build Void Live ISO (Use Official Binaries)
+# .github/workflows/build-without-container.yml
+name: Build Void Live ISO (直接在 ubuntu-latest 上)
 
 on:
   workflow_dispatch:
@@ -25,29 +25,28 @@ on:
         type: string
 
 jobs:
-  build:
+  build-iso:
     runs-on: ubuntu-latest
 
     steps:
-      # --------------------------------------------------------
-      # 1) Checkout 当前仓库（要包含 mklive.sh、Makefile，以及你需要的任何脚本）
-      # --------------------------------------------------------
+      # ── 1. Checkout 仓库，保证有 mklive.sh、Makefile 等文件 ──
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------------
-      # 2) 安装所有 mklive.sh 运行时依赖：
-      #    - curl、tar、xz-utils    （用于下载并解压 xbps-static）
-      #    - bubblewrap             （xbps-uchroot 会依赖它做隔离）
-      #    - squashfs-tools、kmod   （用于打 squashfs）
-      #    - dracut                  （用于生成 initramfs）
-      #    - grub2-common、grub-pc-bin、grub-efi-amd64-bin  （用于配置 GRUB）
-      #    - genisoimage、mtools    （用于烧录/刻盘工具）
-      #    - make、gettext、file、gnupg 等一些辅助工具
-      # --------------------------------------------------------
-      - name: Install host dependencies
+      # ── 2. 在 Ubuntu Runner 上安装所有 mklive.sh 需要的依赖 ──
+      #
+      #    这一步会以 sudo 身份安装：
+      #      · xbps-static（用于后续 xbps-install）
+      #      · bubblewrap（xbps-uchroot 运行时隔离）
+      #      · squashfs-tools、kmod、dracut、grub2-*、genisoimage、mtools、make、gettext、file、bash-completion、gnupg 等
+      - name: Install dependencies on ubuntu-latest
         run: |
+          set -euxo pipefail
+
+          # 更新 apt 索引
           sudo apt-get update
+
+          # 安装一整套构建 Live ISO 所需的工具
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates \
             curl \
@@ -67,44 +66,31 @@ jobs:
             file \
             gnupg \
             bash-completion \
-            # 清理 apt 缓存，节省空间
+            # 清理 apt 缓存以节省空间
             && sudo rm -rf /var/lib/apt/lists/*
 
-      # --------------------------------------------------------
-      # 3) 下载并安装 xbps-static（musl 版，以支持所有架构）
-      #    这会在 /opt/xbps 下生成 xbps-install、xbps-query、xbps-uchroot 等静态可执行文件
-      #    接着用 ln -s 将它们链接到 /usr/local/bin，方便在后续调用 mklive.sh 时直接找到
-      # --------------------------------------------------------
-      - name: Download and install xbps-static
-        run: |
-          # 创建安装目录
+          # ── 下载并解压 xbps-static（musl 版，以支持多种架构） ──
           sudo mkdir -p /opt/xbps
-          # 以 x86_64-musl 为例；如果 arch= aarch64-musl，请把链接换成对应架构。
           curl -L https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz \
             | sudo tar -xJ -C /opt/xbps
-          # 给解压后的文件加上执行权限
           sudo chmod -R a+rx /opt/xbps
-          # 软链接到 /usr/local/bin，让 xbps-install、xbps-query、xbps-uchroot 直接在 PATH 可用
+
+          # 把 xbps-static 里的可执行程序链接到 /usr/local/bin
           for tool in xbps-install.static xbps-query.static xbps-rindex.static xbps-uhelper.static xbps-uchroot.static xbps-uunshare.static; do
             sudo ln -sf /opt/xbps/usr/bin/$tool /usr/local/bin/${tool%.static}
           done
 
-      # --------------------------------------------------------
-      # 4) 计算 DATECODE、拼装包列表与服务列表，然后直接调用 mklive.sh
+      # ── 3. 调用 mklive.sh，拉官方二进制包并打 ISO ──
       #
-      #    -r 参数指向官方线上仓库 https://repo-default.voidlinux.org/current 
-      #    mklive.sh 会自动在临时挂载环境中运行 xbps-install，把下列包全部从这一官方仓库拉下来：
-      #      · base-system
-      #      · squashfs-tools
-      #      · kmod
-      #      · （以及 extra_packages 中指定的其他包）
-      #    它还会自动调用 dracut、mksquashfs、grub-mkconfig 等步骤，最后产出一个可启动 ISO
-      # --------------------------------------------------------
-      - name: Build ISO via Official Void Binaries
+      #    -r 官方仓库： https://repo-default.voidlinux.org/current
+      #    -p “base-system squashfs-tools kmod + extra_packages”
+      #    -S 额外 runit 服务
+      #
+      - name: Build ISO via mklive.sh
         run: |
           set -euxo pipefail
 
-          # 计算 DATECODE：如果用户未输入，就取今天 UTC 格式 YYYYMMDD
+          # 计算日期码，如果用户留空就用今天的 UTC
           if [ -z "${{ inputs.datecode }}" ]; then
             DATECODE="$(date -u +%Y%m%d)"
           else
@@ -118,20 +104,20 @@ jobs:
           # 确保 mklive.sh 可执行
           chmod +x ./mklive.sh
 
-          # 基本要安装的包
+          # 基本要安装的包：base-system、squashfs-tools、kmod
           PKG_STR="base-system squashfs-tools kmod"
           if [ -n "$EXTRA_PKGS" ]; then
             PKG_STR="$PKG_STR $EXTRA_PKGS"
           fi
 
-          # 如果指定了额外 runit 服务，就生成 -S 参数
+          # 额外 runit 服务
           if [ -n "$EXTRA_SVCS" ]; then
             SVC_ARG="-S \"$EXTRA_SVCS\""
           else
             SVC_ARG=""
           fi
 
-          # 最关键的一行：mklive.sh 从官方仓库拉取二进制包
+          # 最关键的一行：让 mklive.sh 直接从官方仓库拉取二进制包
           eval "./mklive.sh \
             -a \"$ARCH\" \
             -r https://repo-default.voidlinux.org/current \
@@ -139,9 +125,7 @@ jobs:
             $SVC_ARG \
             -o void-$ARCH-$DATECODE.iso"
 
-      # --------------------------------------------------------
-      # 5) 上传最终生成的 ISO
-      # --------------------------------------------------------
+      # ── 4. 上传生成好的 ISO ──
       - name: Upload generated ISO
         uses: actions/upload-artifact@v4
         with:
