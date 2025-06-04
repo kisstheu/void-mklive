@@ -88,7 +88,7 @@ jobs:
           done
 
       # ─────────────────────────────────────────────────────────────
-      # 3) 调用 mklive.sh，拉官方仓库中的二进制包并生成 ISO
+      # 3) 调用 mklive.sh（注意加 sudo），拉官方仓库中的二进制包并生成 ISO
       #
       #    -r 官方仓库地址： https://repo-default.voidlinux.org/current
       #    -p 安装包列表： base-system、squashfs-tools、kmod 以及 extra_packages
@@ -126,13 +126,13 @@ jobs:
             SVC_ARG=""
           fi
 
-          # 调用 mklive.sh，从官方仓库拉二进制包并打 ISO
-          eval "./mklive.sh \
-            -a \"$ARCH\" \
+          # 使用 sudo 运行 mklive.sh，从官方仓库拉二进制包并打 ISO
+          sudo ./mklive.sh \
+            -a "$ARCH" \
             -r https://repo-default.voidlinux.org/current \
-            -p \"$PKG_STR\" \
+            -p "$PKG_STR" \
             $SVC_ARG \
-            -o void-$ARCH-$DATECODE.iso"
+            -o void-$ARCH-$DATECODE.iso
 
       # ─────────────────────────────────────────────────────────────
       # 4) 上传生成好的 ISO
