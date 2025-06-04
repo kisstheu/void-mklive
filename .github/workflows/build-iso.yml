@@ -38,11 +38,15 @@ jobs:
             void-builder:latest bash -c '
               set -e
 
+              # (0) 确保全程可见 xbps 工具
+              export PATH=/opt/xbps/usr/bin:$PATH
+
               # (a) 让 builder 拥有 workspace
               chown -R builder:builder /workspace
 
-              # (b) builder: clone void-packages (浅克隆) + bootstrap + base-system
+              # (b) builder 构建 base-system
               su builder -c "
+                export PATH=/opt/xbps/usr/bin:\$PATH
                 git clone --depth 1 https://github.com/void-linux/void-packages.git
                 cd void-packages
                 echo XBPS_CHROOT_CMD=bwrap >> etc/conf
@@ -50,13 +54,19 @@ jobs:
                 ./xbps-src -N pkg base-system
                 xbps-rindex -a hostdir/binpkgs/*.xbps
               "
-
-              # (c) root: 编译 mklive 并生成 ISO
-              make                    # build mklive from current repo sources
+          
+              # (c) root 生成 ISO
+              make
               ./mklive.sh -a x86_64 \
                 -r /workspace/void-packages/hostdir/binpkgs \
                 -o /workspace/void-x86_64-${DATECODE}.iso
             '
+
+
+
+    
+
+
 
       # 3) 上传产物
       - name: Upload ISO
