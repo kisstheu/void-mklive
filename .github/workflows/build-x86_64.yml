@@ -31,14 +31,12 @@ jobs:
           # 下载最新 musl 静态包 (x86_64-musl)
           curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz
 
-          # 解压到 /opt/xbps，使用 bsdtar 以保留符号链接
+          # 解压到 /opt/xbps
           sudo mkdir -p /opt/xbps
           sudo bsdtar -xpf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps
 
           # 将 /opt/xbps/usr/bin 加入 PATH
-          export PATH="/opt/xbps/usr/bin:$PATH"
           echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
-
 
       - name: Clone void-packages (shallow)
         run: |
@@ -46,7 +44,6 @@ jobs:
 
       - name: Binary bootstrap
         run: |
-          export PATH="/opt/xbps/usr/bin:$PATH"
           cd void-packages
           ./xbps-src binary-bootstrap
 
@@ -61,13 +58,11 @@ jobs:
 
       - name: Build base-system
         run: |
-          export PATH="/opt/xbps/usr/bin:$PATH"
           cd void-packages
           ./xbps-src -N pkg base-system
 
       - name: Index local repository
         run: |
-          export PATH="/opt/xbps/usr/bin:$PATH"
           cd void-packages
           xbps-rindex -a hostdir/binpkgs/*.xbps
 
@@ -77,7 +72,6 @@ jobs:
 
       - name: Build ISO with local repo
         run: |
-          export PATH="/opt/xbps/usr/bin:$PATH"
           sudo ./mklive.sh \
             -a x86_64 \
             -r void-packages/hostdir/binpkgs \
