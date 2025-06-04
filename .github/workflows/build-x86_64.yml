@@ -44,7 +44,7 @@ jobs:
 
       - name: Binary bootstrap
         env:
-          PATH: "/opt/xbps/usr/bin:${{ env.PATH }}"
+          PATH: "/opt/xbps/usr/bin:${PATH}"
         run: |
           cd void-packages
           ./xbps-src binary-bootstrap
