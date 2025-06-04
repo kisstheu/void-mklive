@@ -42,6 +42,7 @@ jobs:
           cat > Dockerfile <<'EOF'
           FROM ubuntu:22.04
           ENV DEBIAN_FRONTEND=noninteractive
+
           RUN apt-get update && \
               apt-get install -y --no-install-recommends \
                   ca-certificates curl git xz-utils lzop dosfstools e2fsprogs \
@@ -53,12 +54,13 @@ jobs:
               mkdir -p /opt/xbps && \
               tar -xf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps && \
               chmod -R a+rx /opt/xbps
+
           ENV PATH=/opt/xbps/usr/bin:$PATH
           EOF
 
           docker build -t my-void-builder - < Dockerfile
 
-      # 3) 在容器里调用 mkiso.sh，传入用户选的 flavor 和额外包/服务
+      # 3) 在容器里调用 mkiso.sh，传入 flavor，并通过 “--” 转发 -p/-S 给 mklive.sh
       - name: Build ISO with mkiso.sh
         run: |
           set -e
@@ -84,26 +86,39 @@ jobs:
             -w /workspace \
             my-void-builder \
             bash -euxo pipefail -c '
-              # 使用本地源码，先 make 一次
+              # 先 make 一次，确保 mkiso.sh 最新
               make
 
-              # 组建 mkiso.sh 参数数组：-a、-b、-d、-r
-              ARGS=( "./mkiso.sh" "-a" "$ARCH" "-b" "$FLAVOR" "-d" "$DATECODE" "-r" "https://repo-default.voidlinux.org/current" )
-
-              # 如果 extra_services 不为空，则加 -S
-              if [ -n "$EXTRA_SVCS" ]; then
-                read -r -a SVC_ARR <<< "$EXTRA_SVCS"
-                ARGS+=( "-S" "${SVC_ARR[*]}" )
-              fi
-
-              # 如果 extra_packages 不为空，则加 -p
+              # 构建 mklive.sh 要安装的包列表，必须把 squashfs-tools kmod 放前面
+              PKG_LIST="squashfs-tools kmod"
               if [ -n "$EXTRA_PKGS" ]; then
-                read -r -a PKG_ARR <<< "$EXTRA_PKGS"
-                ARGS+=( "-p" "${PKG_ARR[*]}" )
+                PKG_LIST="$PKG_LIST $EXTRA_PKGS"
               fi
 
-              # 执行 mkiso.sh，输出文件名会被自动命名为 void-<arch>-<flavor>-<date>.iso
-              "${ARGS[@]}"
+              # 构建要启用的服务列表
+              if [ -n "$EXTRA_SVCS" ]; then
+                SVC_LIST="$EXTRA_SVCS"
+              else
+                SVC_LIST=""
+              fi
+
+              # 组装 mkiso.sh 参数
+              #   -a <arch>
+              #   -b <flavor>
+              #   -d <date>
+              #   -r <repo>
+              #   --  表示后面跟给 mklive.sh 的参数
+              #   -p "squashfs-tools kmod [extra]"
+              #   -S "[services]"
+              CMD=( "./mkiso.sh" "-a" "$ARCH" "-b" "$FLAVOR" "-d" "$DATECODE" "-r" "https://repo-default.voidlinux.org/current" "--" )
+
+              CMD+=( "-p" "$PKG_LIST" )
+              if [ -n "$SVC_LIST" ]; then
+                CMD+=( "-S" "$SVC_LIST" )
+              fi
+
+              # 执行 mkiso.sh，会生成 void-<arch>-<flavor>-<date>.iso
+              "${CMD[@]}"
             '
 
       # 4) 上传生成的 ISO
