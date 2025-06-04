@@ -41,14 +41,14 @@ jobs:
           fi
 
           docker run --rm --privileged \
-            -v "$PWD":/workspace \
-            -w /workspace \
+            -v "$PWD":/workspace -w /workspace \
             my-void-builder \
-            ./mklive.sh \
-              -a "${{ inputs.arch }}" \
-              -f "${{ inputs.flavor }}" \
+            ./mklive.sh -a "${{ inputs.arch }}" \
               -r https://repo-default.voidlinux.org/current \
-              -o void-${{ inputs.arch }}-${{ inputs.flavor }}-${DATE}.iso
+              -p "xfce4 xfce4-terminal network-manager-applet dbus-elogind" \
+              -S "dbus NetworkManager" \
+              -o void-${{ inputs.arch }}-xfce-${DATE}.iso
+
 
       # 4. 上传 ISO
       - uses: actions/upload-artifact@v4
