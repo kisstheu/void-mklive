@@ -1,0 +1,62 @@
+name: Build Void ISO From Scratch
+
+on:
+  workflow_dispatch:
+    inputs:
+      datecode:
+        description: 'Optional datecode (defaults to today UTC)'
+        required: false
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # 1) 先用 Dockerfile 构出自定义镜像
+    steps:
+      - name: Checkout repo (void-mklive fork)
+        uses: actions/checkout@v4
+
+      - name: Build custom builder image
+        run: |
+          docker build -t void-builder:latest container
+
+      # 2) 在该镜像里完整跑“bootstrap ➜ base-system ➜ mklive”
+      - name: Run build inside container
+        run: |
+          set -e
+          # 生成 DATECODE
+          if [ -z "${{ inputs.datecode }}" ]; then
+            DATECODE=$(date -u +%Y%m%d)
+          else
+            DATECODE="${{ inputs.datecode }}"
+          fi
+          docker run --rm --privileged \
+            -e DATECODE="$DATECODE" \
+            -v "$PWD":/workspace \
+            -w /workspace \
+            void-builder:latest \
+            bash -c '
+              set -e
+              # 2.1 clone void-packages（浅克隆即可）
+              git clone --depth 1 https://github.com/void-linux/void-packages.git
+              cd void-packages
+              # 2.2 强制使用 bwrap chroot
+              echo "XBPS_CHROOT_CMD=bwrap" >> etc/conf
+              ./xbps-src binary-bootstrap
+              ./xbps-src -N pkg base-system
+              xbps-rindex -a hostdir/binpkgs/*.xbps
+              cd ..
+              # 2.3 编译本仓库中的 mklive 并产出 ISO
+              make
+              sudo ./mklive.sh -a x86_64 \
+                   -r void-packages/hostdir/binpkgs \
+                   -o void-x86_64-${DATECODE}.iso
+            '
+
+      # 3) 上传产物
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-x86_64-${{ inputs.datecode || env.DATECODE }}
+          path: void-x86_64-*.iso
