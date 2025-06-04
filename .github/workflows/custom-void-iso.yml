@@ -1,24 +1,43 @@
-name: Custom Void ISO with official repo
+# Dockerfile (container/Dockerfile)
+```dockerfile
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── install base toolchain & deps ───────────────────────────
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl git xz-utils lzop dosfstools e2fsprogs \
+        squashfs-tools binutils build-essential gawk texinfo \
+        bubblewrap sudo bzip2 unzip libarchive-tools libtool autopoint gettext && \
+    rm -rf /var/lib/apt/lists/*
+
+# ── install xbps‑static (musl build) ─────────────────────────
+RUN curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz && \
+    mkdir -p /opt/xbps && \
+    bsdtar -xpf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps && \
+    chmod -R a+rx /opt/xbps
+
+ENV PATH=/opt/xbps/usr/bin:$PATH
+
+# ── make bwrap set‑uid root so unprivileged user can use it ──
+RUN chmod u+s /usr/bin/bwrap
+
+# ── add non‑root builder user (no sudo needed) ───────────────
+RUN useradd -m builder
+```
+
+---
+
+# GitHub Actions workflow (.github/workflows/build-iso.yml)
+```yaml
+name: Build Void ISO From Scratch
 
 on:
   workflow_dispatch:
     inputs:
-      arch:
-        description: "Target arch (x86_64 / x86_64-musl …)"
-        default: "x86_64"
-        required: true
-        type: string
       datecode:
         description: "Optional datecode (defaults to today UTC)"
-        required: false
-        type: string
-      packages:
-        description: "Extra packages to install (space-separated)"
-        default: "xfce4 xfce4-terminal network-manager-applet dbus-elogind"
-        required: false
-        type: string
-      services:
-        description: "runit services to enable (space-separated)"
         required: false
         type: string
 
@@ -27,70 +46,81 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) 拉取 fork 的 void-mklive 源码
       - uses: actions/checkout@v4
 
-      # 2) Build 简易 Ubuntu 容器（含 mklive 所需工具）
-      - name: Build builder image
+      - name: Build custom builder image
         run: |
-          cat > Dockerfile <<'EOF'
-          FROM ubuntu:22.04
-          ENV DEBIAN_FRONTEND=noninteractive
-          RUN apt-get update && \
-              apt-get install -y --no-install-recommends \
-                  ca-certificates curl git xz-utils lzop dosfstools e2fsprogs \
-                  squashfs-tools kmod util-linux genisoimage mtools make && \
-              rm -rf /var/lib/apt/lists/*
+          docker build -t void-builder:latest container
 
-          # xbps-static (musl) for xbps-install inside container
-          RUN curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz && \
-              mkdir -p /opt/xbps && \
-              tar -xf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps && \
-              chmod -R a+rx /opt/xbps
-          ENV PATH=/opt/xbps/usr/bin:$PATH
-          EOF
-          docker build -t my-void-builder - < Dockerfile
-
-      # 3) 运行 mklive.sh，手动传包 / 服务
-      - name: Build ISO
+      - name: Run build inside container
         run: |
           set -e
-          # 生成日期码
           if [ -z "${{ inputs.datecode }}" ]; then
-            DATE=$(date -u +%Y%m%d)
+            DATECODE=$(date -u +%Y%m%d)
           else
-            DATE=${{ inputs.datecode }}
-          fi
-
-          EXTRA_PKGS="${{ inputs.packages }}"
-          EXTRA_SVCS="${{ inputs.services }}"
-          if [ -n "$EXTRA_PKGS" ]; then
-            PKG_OPT="-p \"$EXTRA_PKGS\""
-          else
-            PKG_OPT=""
-          fi
-          if [ -n "$EXTRA_SVCS" ]; then
-            SRV_OPT="-S \"$EXTRA_SVCS\""
-          else
-            SRV_OPT=""
+            DATECODE=${{ inputs.datecode }}
           fi
 
           docker run --rm --privileged \
+            -e DATECODE="$DATE" \
+            -e ARCH="${{ inputs.arch }}" \
+            -e EXTRA_PKGS="${{ inputs.packages }}" \
+            -e EXTRA_SVCS="${{ inputs.services }}" \
             -v "$PWD":/workspace \
             -w /workspace \
             my-void-builder \
-            bash -c "set -e
-              make                          # 编译 mklive (仅第一次会生效)
-              ./mklive.sh \
-                -a \"${{ inputs.arch }}\" \
-                -r https://repo-default.voidlinux.org/current \
-                -p \"squashfs-tools kmod \$EXTRA_PKGS\" \
-                \$SRV_OPT \
-                -o void-${{ inputs.arch }}-custom-${DATE}.iso
-            "
+            bash -euxo pipefail -c '
+              # prepare package/service lists
+              BASE_PKGS="squashfs-tools kmod"
+              if [ -n "$EXTRA_PKGS" ]; then
+                PKGS="$BASE_PKGS $EXTRA_PKGS"
+              else
+                PKGS="$BASE_PKGS"
+              fi
+              if [ -n "$EXTRA_SVCS" ]; then
+                SRV_OPT="-S \"$EXTRA_SVCS\""
+              else
+                SRV_OPT=""
+              fi
 
-      # 4) 上传生成的 ISO
+              # build mklive (idempotent)
+              make
+
+              # generate ISO using official repo and selected packages/services
+              eval ./mklive.sh \
+                -a "$ARCH" \
+                -r https://repo-default.voidlinux.org/current \
+                -p "$PKGS" \
+                $SRV_OPT \
+                -o "void-${ARCH}-custom-${DATECODE}.iso"
+            ' '
+              set -e
+              export PATH=/opt/xbps/usr/bin:$PATH
+
+              # ── build base‑system + tools as non‑root ─────────────────
+              chown -R builder:builder /workspace
+              su builder -c "\
+                export PATH=/opt/xbps/usr/bin:$PATH; \
+                git clone --depth 1 https://github.com/void-linux/void-packages.git; \
+                cd void-packages; \
+                echo XBPS_CHROOT_CMD=bwrap >> etc/conf; \
+                ./xbps-src binary-bootstrap; \
+                ./xbps-src -N pkg base-system kmod squashfs-tools; \
+                xbps-rindex -a hostdir/binpkgs/*.xbps; \
+              "
+
+              # ── install kmod & squashfs-tools into container runtime ──
+              xbps-install -y -R void-packages/hostdir/binpkgs kmod squashfs-tools
+
+              # ── build ISO as root ─────────────────────────────────────
+              make
+              ./mklive.sh -a x86_64 \
+                -r void-packages/hostdir/binpkgs \
+                -o void-x86_64-${DATECODE}.iso
+            '
+
       - uses: actions/upload-artifact@v4
         with:
-          name: void-${{ inputs.arch }}-custom-iso
-          path: void-*-custom-*.iso
+          name: void-x86_64-${{ inputs.datecode || 'latest' }}
+          path: void-x86_64-*.iso
+```
