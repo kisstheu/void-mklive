@@ -6,7 +6,7 @@ RUN apt-get update && \
         ca-certificates curl git xz-utils lzop dosfstools e2fsprogs \
         squashfs-tools binutils build-essential gawk texinfo \
         bubblewrap sudo bzip2 unzip libarchive-tools libtool autopoint gettext \
-        bsdtar && \
+        && \
     rm -rf /var/lib/apt/lists/*
 
 # ── 安装 xbps-static (musl 版即可) ────────────────────────────────
