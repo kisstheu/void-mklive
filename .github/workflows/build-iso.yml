@@ -38,30 +38,31 @@ jobs:
             -w /workspace \
             void-builder:latest bash -c '
               set -e
-              export PATH=/opt/xbps/usr/bin:$PATH   # xbps 工具全局可见
+              export PATH=/opt/xbps/usr/bin:$PATH
+              export XBPS_ALLOW_ROOT=1             # ★ 关键：一次性 export
           
+              # 1. clone void-packages
               git clone --depth 1 https://github.com/void-linux/void-packages.git
               cd void-packages
               echo XBPS_CHROOT_CMD=bwrap >> etc/conf
           
-              # ① binary-bootstrap
-              XBPS_ALLOW_ROOT=1 ./xbps-src binary-bootstrap
-          
-              # ② build base-system 及必需工具
-              XBPS_ALLOW_ROOT=1 ./xbps-src -N pkg base-system kmod squashfs-tools
-          
+              # 2. bootstrap ＋ build
+              xbps-src binary-bootstrap
+              xbps-src -N pkg base-system kmod squashfs-tools
               xbps-rindex -a hostdir/binpkgs/*.xbps
               cd ..
           
-              # 安装 mklive 运行期必须的工具到容器本身
+              # 3. 安装 mklive 运行期所需工具到容器
               xbps-install -y -R void-packages/hostdir/binpkgs \
                 kmod squashfs-tools
           
+              # 4. 生成 ISO
               make
               ./mklive.sh -a x86_64 \
-                -r /workspace/void-packages/hostdir/binpkgs \
-                -o /workspace/void-x86_64-${DATECODE}.iso
+                -r void-packages/hostdir/binpkgs \
+                -o void-x86_64-${DATECODE}.iso
             '
+
 
 
 
