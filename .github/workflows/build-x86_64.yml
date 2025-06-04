@@ -21,11 +21,6 @@ jobs:
             binutils bzip2 curl ca-certificates git gawk build-essential \
             texinfo unzip libarchive-tools libtool autopoint gettext
 
-      - name: Install bsdtar and symlink it
-        run: |
-          sudo apt install -y bsdtar
-          sudo ln -sf /usr/bin/bsdtar /usr/bin/tar
-
       - name: Download xbps-static
         run: |
           curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.tar.xz
