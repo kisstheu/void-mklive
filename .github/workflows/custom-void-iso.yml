@@ -87,7 +87,7 @@ jobs:
       #      • /etc/runit/runsvdir/default
       #
       #    同时把仓库内容复制到 $VOID_ROOT/tmp/mklive-src
-      #    （用 tar --exclude 排除 void-root 本身，避免自复制）。
+      #    （用 tar --exclude 排除掉 void-root 本身，避免自复制）。
       # ────────────────────────────────────────────────────────────
       - name: Prepare chroot rootfs directory
         run: |
@@ -118,7 +118,8 @@ jobs:
       # 4) 用 xbps-install 把 “官方二进制包” 安装到 $VOID_ROOT。
       #
       #    必须通过 XBPS_TARGET_ARCH="$ARCH" 来指定架构，
-      #    否则 xbps-install 默认会尝试现有二进制工具所在架构（如 x86_64-musl）。
+      #    并且用 XBPS_ACCEPT_KEY=1 自动接受并导入公钥，
+      #    否则它会因为“需要交互导入”或去拉 x86_64-musl 仓库而出错。
       #
       #    安装的包：base-system、runit、squashfs-tools、kmod + 输入的 extra_packages
       # ────────────────────────────────────────────────────────────
@@ -126,9 +127,7 @@ jobs:
         run: |
           set -euxo pipefail
 
-          # 先重新定义 VOID_ROOT
           export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
-
           ARCH="${{ inputs.arch }}"
           EXTRA_PKGS="${{ inputs.extra_packages }}"
 
@@ -137,8 +136,8 @@ jobs:
             PKG_LIST="$PKG_LIST $EXTRA_PKGS"
           fi
 
-          # 关键：用 XBPS_TARGET_ARCH 来指定要拉取哪个仓库
-          sudo env XBPS_TARGET_ARCH="$ARCH" xbps-install -S \
+          # 关键：用 XBPS_TARGET_ARCH="$ARCH" 指定拉哪个架构，// 以及 XBPS_ACCEPT_KEY=1 自动接受公钥
+          sudo env XBPS_TARGET_ARCH="$ARCH" XBPS_ACCEPT_KEY=1 xbps-install -S \
             -R https://repo-default.voidlinux.org/current \
             -r "$VOID_ROOT" \
             -y $PKG_LIST
