@@ -1,29 +1,24 @@
-name: Custom Void ISO (using mkiso.sh)
+name: Build Void Live ISO (bypass mkiso.sh)
 
 on:
   workflow_dispatch:
     inputs:
       arch:
-        description: "目标架构 (x86_64 / x86_64-musl …)"
+        description: "目标架构 (x86_64 / x86_64-musl / aarch64 …)"
         default: "x86_64"
         required: true
         type: string
       datecode:
-        description: "可选日期码 (默认为今天 UTC)"
+        description: "日期码 (YYYYMMDD, 默认为今天 UTC)"
         required: false
         type: string
-      flavor:
-        description: "预置 Live ISO flavor (base/xfce/…)"
-        default: "xfce"
-        required: true
-        type: string
       extra_packages:
-        description: "额外要安装的包 (空格分隔，可留空)"
-        default: ""
+        description: "自选额外包 (空格分隔，可留空)"
+        default: "xfce4 xfce4-terminal network-manager-applet dbus-elogind"
         required: false
         type: string
       extra_services:
-        description: "要启用的 runit 服务 (空格分隔，可留空)"
+        description: "自选要启用的 runit 服务 (空格分隔，可留空)"
         default: ""
         required: false
         type: string
@@ -33,23 +28,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) 拉取你 fork 的 void-mklive 源码
+      # 1) Checkout 你 fork 的 void-mklive 仓库（包含 mklive.sh）
       - uses: actions/checkout@v4
 
-      # 2) 构建一个 Ubuntu 容器做宿主环境（包含运行 mkiso.sh 必要的工具）
+      # 2) Build 一个 Ubuntu 容器，安装 mklive 所需所有宿主工具
       - name: Build builder image
         run: |
-          cat > Dockerfile <<'EOF'
+          cat > Dockerfile << 'EOF'
           FROM ubuntu:22.04
           ENV DEBIAN_FRONTEND=noninteractive
 
+          # 安装 mklive.sh 生成 ISO 需要的所有 Linux 工具
           RUN apt-get update && \
               apt-get install -y --no-install-recommends \
-                  ca-certificates curl git xz-utils lzop dosfstools e2fsprogs \
-                  squashfs-tools kmod util-linux genisoimage mtools make dracut && \
+                ca-certificates \
+                curl \
+                git \
+                xz-utils \
+                lzop \
+                dosfstools \
+                e2fsprogs \
+                squashfs-tools \
+                kmod \
+                util-linux \
+                genisoimage \
+                mtools \
+                make \
+                dracut && \
               rm -rf /var/lib/apt/lists/*
 
-          # xbps-static (musl) for xbps-install inside container
+          # 下载 xbps-static，以便 mklive.sh 在构建过程中可以用 xbps-install 拉取 Void 二进制包
           RUN curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz && \
               mkdir -p /opt/xbps && \
               tar -xf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps && \
@@ -58,13 +66,13 @@ jobs:
           ENV PATH=/opt/xbps/usr/bin:$PATH
           EOF
 
-          docker build -t my-void-builder - < Dockerfile
+          docker build -t void-mklive-builder - < Dockerfile
 
-      # 3) 在容器里调用 mkiso.sh：通过 “--” 把 -p/-S 选项连同 “squashfs-tools kmod” 一起传给 mklive.sh
-      - name: Build ISO with mkiso.sh
+      # 3) 在容器中直接调用 mklive.sh，手动拼包与服务
+      - name: Build ISO via mklive.sh
         run: |
           set -e
-          # 计算日期码：如果没有输入，就用今天 UTC
+          # 计算日期码：如果用户留空，则取今天 UTC(YYYYMMDD)
           if [ -z "${{ inputs.datecode }}" ]; then
             DATECODE=$(date -u +%Y%m%d)
           else
@@ -72,53 +80,49 @@ jobs:
           fi
 
           ARCH="${{ inputs.arch }}"
-          FLAVOR="${{ inputs.flavor }}"
           EXTRA_PKGS="${{ inputs.extra_packages }}"
           EXTRA_SVCS="${{ inputs.extra_services }}"
 
           docker run --rm --privileged \
             -e DATECODE="$DATECODE" \
             -e ARCH="$ARCH" \
-            -e FLAVOR="$FLAVOR" \
             -e EXTRA_PKGS="$EXTRA_PKGS" \
             -e EXTRA_SVCS="$EXTRA_SVCS" \
             -v "$PWD":/workspace \
             -w /workspace \
-            my-void-builder \
+            void-mklive-builder \
             bash -euxo pipefail -c '
-              # 确保 mkiso.sh 使用的是最新源码
+              # （1）make 一下，确保 mklive.sh 是最新的
               make
 
-              # 构建要传给 mklive.sh 的完整包列表（字符串），必须把 squashfs-tools 与 kmod 放最前
-              PKG_STR="squashfs-tools kmod"
+              # （2）构建传给 mklive.sh 的完整包列表字符串：
+              #     【必须】把 squashfs-tools kmod 放最前面，保证会安装到 void-host/usr/bin/mksquashfs
+              PKG_STR="squashfs-tools kmod base-system"
+              #    base-system 是最小系统（含 glibc、核心库、runit、xbps…
+              #    你可以根据需求把 “xfce” 等桌面环境一起放到 PKG_STR 里
+              #    下面拼接用户在 UI 填写的 EXTRA_PKGS
               if [ -n "$EXTRA_PKGS" ]; then
                 PKG_STR="$PKG_STR $EXTRA_PKGS"
               fi
 
-              # 构建要传给 mklive.sh 的服务列表（字符串）
+              # （3）如果 EXTRA_SVCS 不为空，就把它作为一个整体字符串给 -S
+              SVC_ARG=""
               if [ -n "$EXTRA_SVCS" ]; then
-                SVC_STR="$EXTRA_SVCS"
-              else
-                SVC_STR=""
+                SVC_ARG="-S \"$EXTRA_SVCS\""
               fi
 
-              # 组装 mkiso.sh 参数数组
-              ARGS=( "./mkiso.sh" "-a" "$ARCH" "-b" "$FLAVOR" "-d" "$DATECODE" "-r" "https://repo-default.voidlinux.org/current" "--" )
-
-              # 把单个字符串 PKG_STR 作为一个整体参数给 -p
-              ARGS+=( "-p" "$PKG_STR" )
-
-              # 如果有服务要启用，就把 SVC_STR 作为一个整体参数给 -S
-              if [ -n "$SVC_STR" ]; then
-                ARGS+=( "-S" "$SVC_STR" )
-              fi
-
-              # 执行 mkiso.sh（输出为 void-<arch>-<flavor>-<date>.iso）
-              "${ARGS[@]}"
+              # （4）调用 mklive.sh：架构、仓库、包与服务列表都传进去
+              #     最终会输出 void-<arch>-<datecode>.iso
+              eval "./mklive.sh \
+                -a \"$ARCH\" \
+                -r https://repo-default.voidlinux.org/current \
+                -p \"$PKG_STR\" \
+                $SVC_ARG \
+                -o void-$ARCH-$DATECODE.iso"
             '
 
       # 4) 上传生成的 ISO
       - uses: actions/upload-artifact@v4
         with:
-          name: void-${{ inputs.arch }}-${{ inputs.flavor }}-iso
-          path: void-*-*-*.iso
+          name: void-${{ inputs.arch }}-iso
+          path: void-*.iso
