@@ -55,42 +55,52 @@ jobs:
       - name: Build ISO
         run: |
           set -e
+          # 生成日期码
           if [ -z "${{ inputs.datecode }}" ]; then
             DATE=$(date -u +%Y%m%d)
           else
             DATE=${{ inputs.datecode }}
           fi
 
+          ARCH="${{ inputs.arch }}"
+          EXTRA_PKGS="${{ inputs.packages }}"
+          EXTRA_SVCS="${{ inputs.services }}"
+
+          # 在容器里运行
           docker run --rm --privileged \
             -e DATECODE="$DATE" \
-            -e ARCH="${{ inputs.arch }}" \
-            -e EXTRA_PKGS="${{ inputs.packages }}" \
-            -e EXTRA_SVCS="${{ inputs.services }}" \
+            -e ARCH="$ARCH" \
+            -e EXTRA_PKGS="$EXTRA_PKGS" \
+            -e EXTRA_SVCS="$EXTRA_SVCS" \
             -v "$PWD":/workspace \
             -w /workspace \
             my-void-builder \
             bash -euxo pipefail -c '
-              BASE_PKGS="squashfs-tools kmod"
+              # 先组包：必须把 squashfs-tools、kmod 放最前
+              BASE_PKGS=(squashfs-tools kmod)
               if [ -n "$EXTRA_PKGS" ]; then
-                PKGS="$BASE_PKGS $EXTRA_PKGS"
+                read -r -a ADD_PKGS <<< "$EXTRA_PKGS"
+                PKGS=( "${BASE_PKGS[@]}" "${ADD_PKGS[@]}" )
               else
-                PKGS="$BASE_PKGS"
-              fi
-              if [ -n "$EXTRA_SVCS" ]; then
-                SRV_OPT="-S \"$EXTRA_SVCS\""
-              else
-                SRV_OPT=""
+                PKGS=( "${BASE_PKGS[@]}" )
               fi
 
-              # 编译 mklive 本身（若已编译，后续运行时会跳过实际重编）
+              # 再组服务
+              if [ -n "$EXTRA_SVCS" ]; then
+                SRV=( -S "$EXTRA_SVCS" )
+              else
+                SRV=()
+              fi
+
+              # 编译 mklive（若已编译会跳过大部分）
               make
 
-              # 生成 ISO：从官方仓库下载预编译包，并安装指定的包与服务
-              eval ./mklive.sh \
+              # 调用 mklive.sh，直接传入数组展开
+              ./mklive.sh \
                 -a "$ARCH" \
                 -r https://repo-default.voidlinux.org/current \
-                -p "$PKGS" \
-                $SRV_OPT \
+                -p "${PKGS[@]}" \
+                "${SRV[@]}" \
                 -o "void-${ARCH}-custom-${DATECODE}.iso"
             '
 
