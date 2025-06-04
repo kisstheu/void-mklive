@@ -1,4 +1,5 @@
-name: Build Void Live ISO via mklive.sh
+# .github/workflows/build-with-official-binaries.yml
+name: Build Void Live ISO (Use Official Binaries)
 
 on:
   workflow_dispatch:
@@ -9,11 +10,11 @@ on:
         required: true
         type: string
       datecode:
-        description: "日期码 (YYYYMMDD, 若留空则自动取今天 UTC)"
+        description: "日期码 (YYYYMMDD，留空则自动取今天 UTC)"
         required: false
         type: string
       extra_packages:
-        description: "自选额外包 (空格分隔，可留空)"
+        description: "自选额外包 (空格分隔，留空则只安装 base-system、squashfs-tools、kmod)"
         default: "xfce4 xfce4-terminal network-manager-applet dbus-elogind"
         required: false
         type: string
@@ -28,103 +29,121 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Checkout 你 fork 的 void-mklive 仓库（确保包含最新的 mklive.sh）
-      - uses: actions/checkout@v4
+      # --------------------------------------------------------
+      # 1) Checkout 当前仓库（要包含 mklive.sh、Makefile，以及你需要的任何脚本）
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # 2) 构建一个 Ubuntu 容器，安装 mklive.sh 需要的所有宿主工具
-      - name: Build builder image
+      # --------------------------------------------------------
+      # 2) 安装所有 mklive.sh 运行时依赖：
+      #    - curl、tar、xz-utils    （用于下载并解压 xbps-static）
+      #    - bubblewrap             （xbps-uchroot 会依赖它做隔离）
+      #    - squashfs-tools、kmod   （用于打 squashfs）
+      #    - dracut                  （用于生成 initramfs）
+      #    - grub2-common、grub-pc-bin、grub-efi-amd64-bin  （用于配置 GRUB）
+      #    - genisoimage、mtools    （用于烧录/刻盘工具）
+      #    - make、gettext、file、gnupg 等一些辅助工具
+      # --------------------------------------------------------
+      - name: Install host dependencies
         run: |
-          cat > Dockerfile << 'EOF'
-          FROM ubuntu:22.04
-          ENV DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates \
+            curl \
+            xz-utils \
+            tar \
+            bubblewrap \
+            squashfs-tools \
+            kmod \
+            dracut \
+            grub2-common \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            genisoimage \
+            mtools \
+            make \
+            gettext \
+            file \
+            gnupg \
+            bash-completion \
+            # 清理 apt 缓存，节省空间
+            && sudo rm -rf /var/lib/apt/lists/*
 
-          # 安装所有 mklive.sh 构建 ISO 需要的外部工具
-          RUN apt-get update && \
-              apt-get install -y --no-install-recommends \
-                ca-certificates \
-                curl \
-                git \
-                xz-utils \
-                lzop \
-                dosfstools \
-                e2fsprogs \
-                squashfs-tools \
-                kmod \
-                util-linux \
-                genisoimage \
-                mtools \
-                make \
-                dracut && \
-              rm -rf /var/lib/apt/lists/*
-
-          # 下载 xbps-static 以便 mklive.sh 中用 xbps-install 安装 Void 包
-          RUN curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz && \
-              mkdir -p /opt/xbps && \
-              tar -xf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps && \
-              chmod -R a+rx /opt/xbps
-
-          ENV PATH=/opt/xbps/usr/bin:$PATH
-          EOF
-
-          docker build -t void-mklive-builder - < Dockerfile
-
-      # 3) 在容器里直接调用 mklive.sh，先装 base-system，再装 squashfs-tools/kmod，以及额外包/服务
-      - name: Build ISO via mklive.sh
+      # --------------------------------------------------------
+      # 3) 下载并安装 xbps-static（musl 版，以支持所有架构）
+      #    这会在 /opt/xbps 下生成 xbps-install、xbps-query、xbps-uchroot 等静态可执行文件
+      #    接着用 ln -s 将它们链接到 /usr/local/bin，方便在后续调用 mklive.sh 时直接找到
+      # --------------------------------------------------------
+      - name: Download and install xbps-static
         run: |
-          set -e
-          # 计算日期码：如果用户留空，则取今天 UTC(YYYYMMDD)
+          # 创建安装目录
+          sudo mkdir -p /opt/xbps
+          # 以 x86_64-musl 为例；如果 arch= aarch64-musl，请把链接换成对应架构。
+          curl -L https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz \
+            | sudo tar -xJ -C /opt/xbps
+          # 给解压后的文件加上执行权限
+          sudo chmod -R a+rx /opt/xbps
+          # 软链接到 /usr/local/bin，让 xbps-install、xbps-query、xbps-uchroot 直接在 PATH 可用
+          for tool in xbps-install.static xbps-query.static xbps-rindex.static xbps-uhelper.static xbps-uchroot.static xbps-uunshare.static; do
+            sudo ln -sf /opt/xbps/usr/bin/$tool /usr/local/bin/${tool%.static}
+          done
+
+      # --------------------------------------------------------
+      # 4) 计算 DATECODE、拼装包列表与服务列表，然后直接调用 mklive.sh
+      #
+      #    -r 参数指向官方线上仓库 https://repo-default.voidlinux.org/current 
+      #    mklive.sh 会自动在临时挂载环境中运行 xbps-install，把下列包全部从这一官方仓库拉下来：
+      #      · base-system
+      #      · squashfs-tools
+      #      · kmod
+      #      · （以及 extra_packages 中指定的其他包）
+      #    它还会自动调用 dracut、mksquashfs、grub-mkconfig 等步骤，最后产出一个可启动 ISO
+      # --------------------------------------------------------
+      - name: Build ISO via Official Void Binaries
+        run: |
+          set -euxo pipefail
+
+          # 计算 DATECODE：如果用户未输入，就取今天 UTC 格式 YYYYMMDD
           if [ -z "${{ inputs.datecode }}" ]; then
-            DATECODE=$(date -u +%Y%m%d)
+            DATECODE="$(date -u +%Y%m%d)"
           else
-            DATECODE=${{ inputs.datecode }}
+            DATECODE="${{ inputs.datecode }}"
           fi
 
           ARCH="${{ inputs.arch }}"
           EXTRA_PKGS="${{ inputs.extra_packages }}"
           EXTRA_SVCS="${{ inputs.extra_services }}"
 
-          docker run --rm --privileged \
-            -e DATECODE="$DATECODE" \
-            -e ARCH="$ARCH" \
-            -e EXTRA_PKGS="$EXTRA_PKGS" \
-            -e EXTRA_SVCS="$EXTRA_SVCS" \
-            -v "$PWD":/workspace \
-            -w /workspace \
-            void-mklive-builder \
-            bash -euxo pipefail -c '
-              # （1）make 一下，确保 mklive.sh 是最新
-              make
+          # 确保 mklive.sh 可执行
+          chmod +x ./mklive.sh
 
-              # （2）构建传给 mklive.sh 的完整包列表字符串，
-              #     确保先安装 base-system，然后再安装 squashfs-tools 和 kmod。
-              PKG_STR="base-system squashfs-tools kmod"
-              if [ -n "$EXTRA_PKGS" ]; then
-                PKG_STR="$PKG_STR $EXTRA_PKGS"
-              fi
+          # 基本要安装的包
+          PKG_STR="base-system squashfs-tools kmod"
+          if [ -n "$EXTRA_PKGS" ]; then
+            PKG_STR="$PKG_STR $EXTRA_PKGS"
+          fi
 
-              # （3）构建 runit 服务字符串（如果为空则留空）
-              if [ -n "$EXTRA_SVCS" ]; then
-                SVC_ARG="-S \"$EXTRA_SVCS\""
-              else
-                SVC_ARG=""
-              fi
+          # 如果指定了额外 runit 服务，就生成 -S 参数
+          if [ -n "$EXTRA_SVCS" ]; then
+            SVC_ARG="-S \"$EXTRA_SVCS\""
+          else
+            SVC_ARG=""
+          fi
 
-              # （4）调用 mklive.sh：
-              #     -a <arch>
-              #     -r <repo>
-              #     -p "<包列表>"
-              #     -S "<服务列表>"（若非空）
-              #     -o 指定输出 ISO 名称
-              eval "./mklive.sh \
-                -a \"$ARCH\" \
-                -r https://repo-default.voidlinux.org/current \
-                -p \"$PKG_STR\" \
-                $SVC_ARG \
-                -o void-$ARCH-$DATECODE.iso"
-            '
+          # 最关键的一行：mklive.sh 从官方仓库拉取二进制包
+          eval "./mklive.sh \
+            -a \"$ARCH\" \
+            -r https://repo-default.voidlinux.org/current \
+            -p \"$PKG_STR\" \
+            $SVC_ARG \
+            -o void-$ARCH-$DATECODE.iso"
 
-      # 4) 上传生成的 ISO 文件
-      - uses: actions/upload-artifact@v4
+      # --------------------------------------------------------
+      # 5) 上传最终生成的 ISO
+      # --------------------------------------------------------
+      - name: Upload generated ISO
+        uses: actions/upload-artifact@v4
         with:
           name: void-${{ inputs.arch }}-iso
           path: void-*.iso
