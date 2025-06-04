@@ -40,7 +40,7 @@ jobs:
 
       - name: Clone void-packages
         run: |
-          git clone https://github.com/void-linux/void-packages.git
+          git clone --depth 1 https://github.com/void-linux/void-packages.git
 
       - name: Binary bootstrap
         run: |
