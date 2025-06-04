@@ -1,10 +1,10 @@
-name: Build Void ISO from Scratch
+name: Build Void ISO From Scratch
 
 on:
   workflow_dispatch:
     inputs:
       datecode:
-        description: "Optional datecode (defaults to today-UTC)"
+        description: "Optional datecode (defaults to today UTC)"
         required: false
         type: string
 
@@ -13,19 +13,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 0) 取当前仓库（fork 的 void-mklive）
       - uses: actions/checkout@v4
 
-      # 1) 用上面的 Dockerfile 构建自定义镜像
       - name: Build custom builder image
         run: |
           docker build -t void-builder:latest container
 
-      # 2) 在容器里执行完整流程
       - name: Run build inside container
         run: |
           set -e
-          # 生成 DATECODE
           if [ -z "${{ inputs.datecode }}" ]; then
             DATECODE=$(date -u +%Y%m%d)
           else
@@ -39,32 +35,30 @@ jobs:
             void-builder:latest bash -c '
               set -e
               export PATH=/opt/xbps/usr/bin:$PATH
-              export XBPS_ALLOW_ROOT=1
-          
-              git clone --depth 1 https://github.com/void-linux/void-packages.git
-              cd void-packages
-              echo XBPS_CHROOT_CMD=bwrap >> etc/conf
-          
-              ./xbps-src binary-bootstrap
-              ./xbps-src -N pkg base-system kmod squashfs-tools
-              xbps-rindex -a hostdir/binpkgs/*.xbps
-              cd ..
-          
-              xbps-install -y -R void-packages/hostdir/binpkgs \
-                kmod squashfs-tools
-          
+
+              # ── build base‑system + tools as non‑root ─────────────────
+              chown -R builder:builder /workspace
+              su builder -c "\
+                export PATH=/opt/xbps/usr/bin:$PATH; \
+                git clone --depth 1 https://github.com/void-linux/void-packages.git; \
+                cd void-packages; \
+                echo XBPS_CHROOT_CMD=bwrap >> etc/conf; \
+                ./xbps-src binary-bootstrap; \
+                ./xbps-src -N pkg base-system kmod squashfs-tools; \
+                xbps-rindex -a hostdir/binpkgs/*.xbps; \
+              "
+
+              # ── install kmod & squashfs-tools into container runtime ──
+              xbps-install -y -R void-packages/hostdir/binpkgs kmod squashfs-tools
+
+              # ── build ISO as root ─────────────────────────────────────
               make
               ./mklive.sh -a x86_64 \
                 -r void-packages/hostdir/binpkgs \
                 -o void-x86_64-${DATECODE}.iso
             '
 
-
-
-
-      # 3) 上传生成的 ISO
-      - name: Upload ISO
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: void-x86_64-${{ inputs.datecode || 'latest' }}
           path: void-x86_64-*.iso
