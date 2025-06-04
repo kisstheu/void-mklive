@@ -14,7 +14,7 @@ on:
         required: false
         type: string
       extra_packages:
-        description: "自选额外包 (空格分隔，留空则只安装 base-system、squashfs-tools、kmod)"
+        description: "自选额外包 (空格分隔，留空则只安装 base-system、squashfs-tools、kmod、runit)"
         default: "xfce4 xfce4-terminal network-manager-applet dbus-elogind"
         required: false
         type: string
@@ -53,7 +53,7 @@ jobs:
           # 更新 apt 索引
           sudo apt-get update
 
-          # 安装所有 mklive.sh 需要的命令行工具，注意不安装宿主的 dracut
+          # 安装 mklive.sh 需要的命令行工具，注意不安装宿主的 dracut
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             ca-certificates \
             curl \
@@ -88,10 +88,31 @@ jobs:
           done
 
       # ─────────────────────────────────────────────────────────────
-      # 3) 调用 mklive.sh（注意加 sudo），拉官方仓库中的二进制包并生成 ISO
+      # 3) **打补丁**：在 mklive.sh 里插入“创建 /var/tmp、/etc/modules-load.d、/etc/runit/runsvdir/default” 的语句
+      #
+      #    这样，当 mklive.sh 进入 chroot 安装完成“base-system + runit + squashfs-tools + kmod”后，
+      #    它才会去写 dm-raid.conf、去往 runit 目录打 symlink、去调用 dracut。
+      #    我们把补丁直接用 sed 插在“定义好 CHROOT 变量之后”的第一行，示例如下。
+      # ─────────────────────────────────────────────────────────────
+      - name: Patch mklive.sh to create missing directories
+        run: |
+          set -euxo pipefail
+
+          # 在 mklive.sh 中搜索 “CHROOT=” 那一行（大多数版本里这一行会长得像： CHROOT="${BUILDDIR}/void-host" ）
+          # 然后在它的下一行插入创建目录的命令：
+          sed -i '/^CHROOT=/a \
+          # —— BEGIN auto-create missing dirs \
+          mkdir -p "$CHROOT"/var/tmp && \
+          mkdir -p "$CHROOT"/etc/modules-load.d && \
+          mkdir -p "$CHROOT"/etc/runit/runsvdir/default \
+          # —— END auto-create missing dirs
+          ' ./mklive.sh
+
+      # ─────────────────────────────────────────────────────────────
+      # 4) 调用 mklive.sh（注意加 sudo），并且在安装包列表里**加入 runit**，保证 /etc/runit 下有目录存在
       #
       #    -r 官方仓库地址： https://repo-default.voidlinux.org/current
-      #    -p 安装包列表： base-system、squashfs-tools、kmod 以及 extra_packages
+      #    -p 安装包列表： base-system、squashfs-tools、kmod、runit，以及 extra_packages
       #    -S 额外 runit 服务 (如果有)
       #    -o 输出文件名： void-<ARCH>-<DATECODE>.iso
       # ─────────────────────────────────────────────────────────────
@@ -110,11 +131,11 @@ jobs:
           EXTRA_PKGS="${{ inputs.extra_packages }}"
           EXTRA_SVCS="${{ inputs.extra_services }}"
 
-          # 确保 mklive.sh 可执行
+          # 确保脚本可执行
           chmod +x ./mklive.sh
 
-          # 基本包列表： base-system、squashfs-tools、kmod
-          PKG_STR="base-system squashfs-tools kmod"
+          # 基本包：必须先装 base-system、runit、squashfs-tools、kmod
+          PKG_STR="base-system runit squashfs-tools kmod"
           if [ -n "$EXTRA_PKGS" ]; then
             PKG_STR="$PKG_STR $EXTRA_PKGS"
           fi
@@ -126,7 +147,10 @@ jobs:
             SVC_ARG=""
           fi
 
-          # 使用 sudo 运行 mklive.sh，从官方仓库拉二进制包并打 ISO
+          # 以 sudo 运行 mklive.sh，mklive.sh 内部会：
+          #  1) 在 "$PWD/mklive-build.xxx/void-host" 下创建 chroot，xbps-install -R <repo> $PKG_STR 
+          #  2) 我们已在补丁里插了“mkdir -p /var/tmp /etc/modules-load.d /etc/runit/runsvdir/default”
+          #     因此后续写 dm-raid.conf、打 runit symlink、调用 dracut 都不会报找不到目录错误
           sudo ./mklive.sh \
             -a "$ARCH" \
             -r https://repo-default.voidlinux.org/current \
@@ -135,7 +159,7 @@ jobs:
             -o void-$ARCH-$DATECODE.iso
 
       # ─────────────────────────────────────────────────────────────
-      # 4) 上传生成好的 ISO
+      # 5) 上传生成好的 ISO 作为 artifact
       # ─────────────────────────────────────────────────────────────
       - name: Upload generated ISO
         uses: actions/upload-artifact@v4
