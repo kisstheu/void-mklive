@@ -23,8 +23,8 @@ jobs:
 
       - name: Download xbps-static
         run: |
-          curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.tar.xz
-          tar -xf xbps-static-latest.tar.xz
+          curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz
+          tar -xf xbps-static-latest.x86_64-musl.tar.xz
           sudo mv xbps-static /opt/xbps
           echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
 
