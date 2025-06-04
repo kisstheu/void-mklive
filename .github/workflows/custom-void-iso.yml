@@ -87,7 +87,7 @@ jobs:
       #      • /etc/runit/runsvdir/default
       #
       #    同时把仓库内容复制到 $VOID_ROOT/tmp/mklive-src
-      #    （用 tar --exclude 排除掉 void-root 本身，避免自复制）。
+      #    （用 tar --exclude 排除 void-root 本身，避免自复制）。
       # ────────────────────────────────────────────────────────────
       - name: Prepare chroot rootfs directory
         run: |
@@ -115,11 +115,31 @@ jobs:
           sudo chown -R $USER:$USER "$VOID_ROOT"
 
       # ────────────────────────────────────────────────────────────
-      # 4) 用 xbps-install 把 “官方二进制包” 安装到 $VOID_ROOT。
+      # 4) 在进入 chroot 之前，先把官方仓库的公钥下载到 $VOID_ROOT/var/db/xbps/keys，
+      #    这样 xbps-install 就不需要交互式导入了。
+      # ────────────────────────────────────────────────────────────
+      - name: Pre-populate Void repo key in chroot
+        run: |
+          set -euxo pipefail
+
+          export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
+
+          # 创建存放公钥的目录
+          sudo mkdir -p "$VOID_ROOT/var/db/xbps/keys"
+
+          # 从官方仓库拉取签名公钥（Fingerprint: 60:ae:0c:d6:f0:95:17:80:bc:93:46:7a:89:af:a3:2d）
+          sudo curl -L \
+            https://repo-default.voidlinux.org/current/keys/60:ae:0c:d6:f0:95:17:80:bc:93:46:7a:89:af:a3:2d.plist \
+            -o "$VOID_ROOT/var/db/xbps/keys/60:ae:0c:d6:f0:95:17:80:bc:93:46:7a:89:af:a3:2d.plist"
+
+          # 确保目录权限正确
+          sudo chmod -R 644 "$VOID_ROOT/var/db/xbps/keys"
+
+      # ────────────────────────────────────────────────────────────
+      # 5) 用 xbps-install 把 “官方二进制包” 安装到 $VOID_ROOT。
       #
       #    必须通过 XBPS_TARGET_ARCH="$ARCH" 来指定架构，
-      #    并且用 XBPS_ACCEPT_KEY=1 自动接受并导入公钥，
-      #    否则它会因为“需要交互导入”或去拉 x86_64-musl 仓库而出错。
+      #    否则 xbps-install 默认会尝试现有二进制工具所在架构（如 x86_64-musl）。
       #
       #    安装的包：base-system、runit、squashfs-tools、kmod + 输入的 extra_packages
       # ────────────────────────────────────────────────────────────
@@ -136,14 +156,14 @@ jobs:
             PKG_LIST="$PKG_LIST $EXTRA_PKGS"
           fi
 
-          # 关键：用 XBPS_TARGET_ARCH="$ARCH" 指定拉哪个架构，// 以及 XBPS_ACCEPT_KEY=1 自动接受公钥
-          sudo env XBPS_TARGET_ARCH="$ARCH" XBPS_ACCEPT_KEY=1 xbps-install -S \
+          # 关键：用 XBPS_TARGET_ARCH="$ARCH" 指定拉哪个架构
+          sudo env XBPS_TARGET_ARCH="$ARCH" xbps-install -S \
             -R https://repo-default.voidlinux.org/current \
             -r "$VOID_ROOT" \
             -y $PKG_LIST
 
       # ────────────────────────────────────────────────────────────
-      # 5) 在 chroot 里创建一些 runit 所需的符号链接（保险操作）
+      # 6) 在 chroot 里创建一些 runit 所需的符号链接（保险操作）
       # ────────────────────────────────────────────────────────────
       - name: Fix runit links in chroot
         run: |
@@ -156,7 +176,7 @@ jobs:
           sudo ln -sf /usr/bin/chpst    "$VOID_ROOT/usr/bin/chpst"    || true
 
       # ────────────────────────────────────────────────────────────
-      # 6) 把宿主的 /proc /sys /dev /run Bind 到 chroot，
+      # 7) 把宿主的 /proc /sys /dev /run Bind 到 chroot，
       #    并在 chroot 内部运行 mklive.sh（它会自动安装剩余包、生成 initramfs、squashfs、GRUB、打 ISO）。
       # ────────────────────────────────────────────────────────────
       - name: Run mklive.sh inside chroot
@@ -231,7 +251,7 @@ jobs:
           sudo chown $USER:$USER "$GITHUB_WORKSPACE/void-$ARCH-$DATECODE.iso"
 
       # ────────────────────────────────────────────────────────────
-      # 7) 上传最终生成的 ISO 作为 artifact
+      # 8) 上传最终生成的 ISO 作为 artifact
       # ────────────────────────────────────────────────────────────
       - name: Upload generated ISO
         uses: actions/upload-artifact@v4
