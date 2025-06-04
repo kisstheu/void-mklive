@@ -36,7 +36,7 @@ jobs:
       # 1) 拉取你 fork 的 void-mklive 源码
       - uses: actions/checkout@v4
 
-      # 2) 构建一个 Ubuntu 容器做宿主环境（只要能跑 mkiso.sh 所需的工具）
+      # 2) 构建一个 Ubuntu 容器做宿主环境（包含运行 mkiso.sh 必要的工具）
       - name: Build builder image
         run: |
           cat > Dockerfile <<'EOF'
@@ -49,7 +49,7 @@ jobs:
                   squashfs-tools kmod util-linux genisoimage mtools make dracut && \
               rm -rf /var/lib/apt/lists/*
 
-          # xbps-static (musl) for xbps-install inside container (mkiso.sh 里会用到)
+          # xbps-static (musl) for xbps-install inside container
           RUN curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz && \
               mkdir -p /opt/xbps && \
               tar -xf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps && \
@@ -60,7 +60,7 @@ jobs:
 
           docker build -t my-void-builder - < Dockerfile
 
-      # 3) 在容器里调用 mkiso.sh，传入 flavor，并用真正的数组展开 -p/-S 参数
+      # 3) 在容器里调用 mkiso.sh：通过 “--” 把 -p/-S 选项连同 “squashfs-tools kmod” 一起传给 mklive.sh
       - name: Build ISO with mkiso.sh
         run: |
           set -e
@@ -86,32 +86,34 @@ jobs:
             -w /workspace \
             my-void-builder \
             bash -euxo pipefail -c '
-              # 确保本地 mkiso.sh 最新
+              # 确保 mkiso.sh 使用的是最新源码
               make
 
-              # 把要传给 mklive.sh 的包列表做成数组，必须把 squashfs-tools 与 kmod 放最前
-              read -r -a USER_PKGS <<< "$EXTRA_PKGS"
-              PKG_LIST=( squashfs-tools kmod "${USER_PKGS[@]}" )
-
-              # 把要启用的服务做成数组（如果输入为空，则留空数组）
-              if [ -n "$EXTRA_SVCS" ]; then
-                read -r -a SVC_LIST <<< "$EXTRA_SVCS"
-              else
-                SVC_LIST=()
+              # 构建要传给 mklive.sh 的完整包列表（字符串），必须把 squashfs-tools 与 kmod 放最前
+              PKG_STR="squashfs-tools kmod"
+              if [ -n "$EXTRA_PKGS" ]; then
+                PKG_STR="$PKG_STR $EXTRA_PKGS"
               fi
 
-              # 组装 mkiso.sh 参数：-a -b -d -r -- (转发给 mklive.sh)
+              # 构建要传给 mklive.sh 的服务列表（字符串）
+              if [ -n "$EXTRA_SVCS" ]; then
+                SVC_STR="$EXTRA_SVCS"
+              else
+                SVC_STR=""
+              fi
+
+              # 组装 mkiso.sh 参数数组
               ARGS=( "./mkiso.sh" "-a" "$ARCH" "-b" "$FLAVOR" "-d" "$DATECODE" "-r" "https://repo-default.voidlinux.org/current" "--" )
 
-              # 把数组 PKG_LIST 展开为 -p <each>
-              ARGS+=( "-p" "${PKG_LIST[@]}" )
+              # 把单个字符串 PKG_STR 作为一个整体参数给 -p
+              ARGS+=( "-p" "$PKG_STR" )
 
-              # 如果有服务要启用，就加 -S <each>
-              if [ "${#SVC_LIST[@]}" -gt 0 ]; then
-                ARGS+=( "-S" "${SVC_LIST[@]}" )
+              # 如果有服务要启用，就把 SVC_STR 作为一个整体参数给 -S
+              if [ -n "$SVC_STR" ]; then
+                ARGS+=( "-S" "$SVC_STR" )
               fi
 
-              # 调用 mkiso.sh
+              # 执行 mkiso.sh（输出为 void-<arch>-<flavor>-<date>.iso）
               "${ARGS[@]}"
             '
 
