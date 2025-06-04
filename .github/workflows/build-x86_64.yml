@@ -38,9 +38,6 @@ jobs:
           # 3. 把 /opt/xbps/usr/bin 加入 PATH
           echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
 
-          # 4. 验证一下版本（可选）
-          xbps-install -V
-
       - name: Clone void-packages
         run: |
           git clone https://github.com/void-linux/void-packages
@@ -84,6 +81,10 @@ jobs:
             -o void-x86_64-${{ steps.date.outputs.datecode }}.iso
 
       - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-x86_64-${{ steps.date.outputs.datecode }}.iso
+          path: void-mklive/void-x86_64-${{ steps.date.outputs.datecode }}.iso
         uses: actions/upload-artifact@v4
         with:
           name: void-x86_64-${{ steps.date.outputs.datecode }}.iso
