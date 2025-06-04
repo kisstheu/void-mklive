@@ -60,7 +60,7 @@ jobs:
 
           docker build -t my-void-builder - < Dockerfile
 
-      # 3) 在容器里调用 mkiso.sh，传入 flavor，并通过 “--” 转发 -p/-S 给 mklive.sh
+      # 3) 在容器里调用 mkiso.sh，传入 flavor，并用真正的数组展开 -p/-S 参数
       - name: Build ISO with mkiso.sh
         run: |
           set -e
@@ -86,39 +86,33 @@ jobs:
             -w /workspace \
             my-void-builder \
             bash -euxo pipefail -c '
-              # 先 make 一次，确保 mkiso.sh 最新
+              # 确保本地 mkiso.sh 最新
               make
 
-              # 构建 mklive.sh 要安装的包列表，必须把 squashfs-tools kmod 放前面
-              PKG_LIST="squashfs-tools kmod"
-              if [ -n "$EXTRA_PKGS" ]; then
-                PKG_LIST="$PKG_LIST $EXTRA_PKGS"
-              fi
+              # 把要传给 mklive.sh 的包列表做成数组，必须把 squashfs-tools 与 kmod 放最前
+              read -r -a USER_PKGS <<< "$EXTRA_PKGS"
+              PKG_LIST=( squashfs-tools kmod "${USER_PKGS[@]}" )
 
-              # 构建要启用的服务列表
+              # 把要启用的服务做成数组（如果输入为空，则留空数组）
               if [ -n "$EXTRA_SVCS" ]; then
-                SVC_LIST="$EXTRA_SVCS"
+                read -r -a SVC_LIST <<< "$EXTRA_SVCS"
               else
-                SVC_LIST=""
+                SVC_LIST=()
               fi
 
-              # 组装 mkiso.sh 参数
-              #   -a <arch>
-              #   -b <flavor>
-              #   -d <date>
-              #   -r <repo>
-              #   --  表示后面跟给 mklive.sh 的参数
-              #   -p "squashfs-tools kmod [extra]"
-              #   -S "[services]"
-              CMD=( "./mkiso.sh" "-a" "$ARCH" "-b" "$FLAVOR" "-d" "$DATECODE" "-r" "https://repo-default.voidlinux.org/current" "--" )
+              # 组装 mkiso.sh 参数：-a -b -d -r -- (转发给 mklive.sh)
+              ARGS=( "./mkiso.sh" "-a" "$ARCH" "-b" "$FLAVOR" "-d" "$DATECODE" "-r" "https://repo-default.voidlinux.org/current" "--" )
 
-              CMD+=( "-p" "$PKG_LIST" )
-              if [ -n "$SVC_LIST" ]; then
-                CMD+=( "-S" "$SVC_LIST" )
+              # 把数组 PKG_LIST 展开为 -p <each>
+              ARGS+=( "-p" "${PKG_LIST[@]}" )
+
+              # 如果有服务要启用，就加 -S <each>
+              if [ "${#SVC_LIST[@]}" -gt 0 ]; then
+                ARGS+=( "-S" "${SVC_LIST[@]}" )
               fi
 
-              # 执行 mkiso.sh，会生成 void-<arch>-<flavor>-<date>.iso
-              "${CMD[@]}"
+              # 调用 mkiso.sh
+              "${ARGS[@]}"
             '
 
       # 4) 上传生成的 ISO
