@@ -34,7 +34,8 @@ jobs:
           # 解压到 /opt/xbps
           sudo mkdir -p /opt/xbps
           sudo bsdtar -xpf xbps-static-latest.x86_64-musl.tar.xz -C /opt/xbps
-
+          # 给予所有用户可执行权限，避免非 root 用户无法访问
+          sudo chmod -R a+rx /opt/xbps
           # 将 /opt/xbps/usr/bin 加入 PATH
           echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
 
