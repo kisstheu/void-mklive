@@ -14,6 +14,7 @@ on:
         type: string
       packages:
         description: "Extra packages to install (space-separated)"
+        default: "xfce4 xfce4-terminal network-manager-applet dbus-elogind"
         required: false
         type: string
       services:
