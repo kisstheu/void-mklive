@@ -1,26 +1,27 @@
-name: Build Void ISO From Scratch
+name: Build Void ISO from Scratch
 
 on:
   workflow_dispatch:
     inputs:
       datecode:
-        description: "Optional datecode (defaults to today UTC)"
+        description: "Optional datecode (defaults to today-UTC)"
         required: false
         type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      # 0) 取仓库代码（fork 的 void-mklive）
+      # 0) 取当前仓库（fork 的 void-mklive）
       - uses: actions/checkout@v4
 
-      # 1) 构建自定义容器镜像
+      # 1) 用上面的 Dockerfile 构建自定义镜像
       - name: Build custom builder image
         run: |
           docker build -t void-builder:latest container
 
-      # 2) 在容器里整套流程：bootstrap → base-system → mklive
+      # 2) 在容器里执行完整流程
       - name: Run build inside container
         run: |
           set -e
@@ -37,40 +38,32 @@ jobs:
             -w /workspace \
             void-builder:latest bash -c '
               set -e
-              export PATH=/opt/xbps/usr/bin:$PATH
-              chown -R builder:builder /workspace
-          
-              # builder: build base-system + tools
-              su builder -c "
-                export PATH=/opt/xbps/usr/bin:\$PATH
-                git clone --depth 1 https://github.com/void-linux/void-packages.git
-                cd void-packages
-                echo XBPS_CHROOT_CMD=bwrap >> etc/conf
-                ./xbps-src binary-bootstrap
-                ./xbps-src -N pkg base-system kmod squashfs-tools
-                xbps-rindex -a hostdir/binpkgs/*.xbps
-              "
-          
-              # root: install tools into container runtime ➜ then run mklive
-              /opt/xbps/usr/bin/xbps-install -y \
-                -R /workspace/void-packages/hostdir/binpkgs \
+              export PATH=/opt/xbps/usr/bin:$PATH   # 全程可见 xbps 工具
+
+              # Ⅰ. clone void-packages 并构建 base-system + 必需工具
+              git clone --depth 1 https://github.com/void-linux/void-packages.git
+              cd void-packages
+              echo XBPS_ALLOW_ROOT=yes  >> etc/conf      # 允许 root 运行
+              echo XBPS_CHROOT_CMD=bwrap >> etc/conf     # 使用 bubblewrap
+              ./xbps-src binary-bootstrap
+              ./xbps-src -N pkg base-system kmod squashfs-tools
+              xbps-rindex -a hostdir/binpkgs/*.xbps
+              cd ..
+
+              # Ⅱ. 把刚编好的 kmod 与 squashfs-tools 安装进容器运行环境
+              xbps-install -y -R void-packages/hostdir/binpkgs \
                 kmod squashfs-tools
-          
-              make
+
+              # Ⅲ. 编译并运行 mklive 生成 ISO
+              make            # 构建 mklive 本身
               ./mklive.sh -a x86_64 \
                 -r /workspace/void-packages/hostdir/binpkgs \
                 -o /workspace/void-x86_64-${DATECODE}.iso
             '
 
-
-
-    
-
-
-
-      # 3) 上传产物
+      # 3) 上传生成的 ISO
       - name: Upload ISO
         uses: actions/upload-artifact@v4
         with:
-          name: void-x86_64-${{ inputs.datecode || '' }}
+          name: void-x86_64-${{ inputs.datecode || 'latest' }}
           path: void-x86_64-*.iso
