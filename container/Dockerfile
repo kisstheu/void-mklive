@@ -15,3 +15,7 @@ RUN curl -LO https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64
     chmod -R a+rx /opt/xbps
 
 ENV PATH=/opt/xbps/usr/bin:${PATH}
+
+# 创建非特权用户 builder，赋予密码免 sudo
+RUN useradd -m builder && \
+    echo "builder ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/builder
