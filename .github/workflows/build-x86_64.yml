@@ -43,9 +43,8 @@ jobs:
           git clone --depth 1 https://github.com/void-linux/void-packages.git
 
       - name: Binary bootstrap
-        env:
-          PATH: "/opt/xbps/usr/bin:${PATH}"
         run: |
+          export PATH="/opt/xbps/usr/bin:$PATH"
           cd void-packages
           ./xbps-src binary-bootstrap
 
@@ -59,16 +58,14 @@ jobs:
           fi
 
       - name: Build base-system
-        env:
-          PATH: "/opt/xbps/usr/bin:${{ env.PATH }}"
         run: |
+          export PATH="/opt/xbps/usr/bin:$PATH"
           cd void-packages
           ./xbps-src -N pkg base-system
 
       - name: Index local repository
-        env:
-          PATH: "/opt/xbps/usr/bin:${{ env.PATH }}"
         run: |
+          export PATH="/opt/xbps/usr/bin:$PATH"
           cd void-packages
           xbps-rindex -a hostdir/binpkgs/*.xbps
 
@@ -77,9 +74,8 @@ jobs:
           make
 
       - name: Build ISO with local repo
-        env:
-          PATH: "/opt/xbps/usr/bin:${{ env.PATH }}"
         run: |
+          export PATH="/opt/xbps/usr/bin:$PATH"
           sudo ./mklive.sh \
             -a x86_64 \
             -r void-packages/hostdir/binpkgs \
