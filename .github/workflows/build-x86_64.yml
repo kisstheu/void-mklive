@@ -1,0 +1,57 @@
+name: Build Void x86_64 ISO
+
+on:
+  workflow_dispatch:
+    inputs:
+      datecode:
+        description: 'Optional datecode (default: today UTC)'
+        required: false
+        type: string
+
+jobs:
+  build-iso:
+    name: Build Void ISO (x86_64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y xz-utils lzop dosfstools e2fsprogs squashfs-tools \
+            binutils bzip2 curl ca-certificates git
+
+      - name: Download xbps-static
+        run: |
+          curl -LO https://alpha.de.repo.voidlinux.org/static/xbps-static-latest.tar.xz
+          tar -xf xbps-static-latest.tar.xz
+          sudo mv xbps-static /opt/xbps
+          echo "/opt/xbps/usr/bin" >> $GITHUB_PATH
+
+      - name: Clone void-mklive
+        run: |
+          git clone https://github.com/void-linux/void-mklive
+          cd void-mklive
+          chmod +x mklive.sh
+
+      - name: Set DATECODE
+        id: date
+        run: |
+          if [ -z "${{ inputs.datecode }}" ]; then
+            echo "datecode=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          else
+            echo "datecode=${{ inputs.datecode }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build ISO
+        run: |
+          cd void-mklive
+          sudo ./mklive.sh \
+            -a x86_64 \
+            -o void-x86_64-${{ steps.date.outputs.datecode }}.iso \
+            -r https://repo-default.voidlinux.org/current
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-x86_64-${{ steps.date.outputs.datecode }}.iso
+          path: void-mklive/void-x86_64-${{ steps.date.outputs.datecode }}.iso
