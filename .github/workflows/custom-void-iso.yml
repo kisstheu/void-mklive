@@ -78,26 +78,32 @@ jobs:
               # 编译 mklive 本身（若已编译会跳过）
               make
 
-              # 构建 -p 字符串，确保 squashfs-tools 始终在最前
-              PKG_STR="squashfs-tools kmod"
+              # 构建包列表，确保 squashfs-tools 始终在最前
+              BASE_PKGS=(squashfs-tools kmod)
               if [ -n "$EXTRA_PKGS" ]; then
-                PKG_STR="$PKG_STR $EXTRA_PKGS"
-              fi
-
-              # 构建 -S 部分
-              if [ -n "$EXTRA_SVCS" ]; then
-                SRV_ARG="-S \"$EXTRA_SVCS\""
+                read -r -a ADD_PKGS <<< "$EXTRA_PKGS"
+                PKG_LIST=( "${BASE_PKGS[@]}" "${ADD_PKGS[@]}" )
               else
-                SRV_ARG=""
+                PKG_LIST=( "${BASE_PKGS[@]}" )
               fi
 
-              # 调用 mklive.sh：直接传一个带空格的字符串给 -p
-              eval "./mklive.sh \
-                -a \"$ARCH\" \
-                -r https://repo-default.voidlinux.org/current \
-                -p \"$PKG_STR\" \
-                $SRV_ARG \
-                -o \"void-$ARCH-custom-$DATECODE.iso\""
+              # 构建服务列表
+              if [ -n "$EXTRA_SVCS" ]; then
+                read -r -a SVC_ARR <<< "$EXTRA_SVCS"
+                SVC_ARGS=( -S "${SVC_ARR[*]}" )
+              else
+                SVC_ARGS=()
+              fi
+
+              # 组装 mklive.sh 参数，安装包与启用服务
+              ARGS=( "./mklive.sh" "-a" "$ARCH" "-r" "https://repo-default.voidlinux.org/current" "-p" "${PKG_LIST[*]}" )
+              if [ "${#SVC_ARGS[@]}" -gt 0 ]; then
+                ARGS+=( "${SVC_ARGS[@]}" )
+              fi
+              ARGS+=( "-o" "void-$ARCH-custom-$DATECODE.iso" )
+
+              # 调用 mklive.sh 生成 ISO
+              "${ARGS[@]}"
             '
 
       # 4) 上传生成的 ISO
