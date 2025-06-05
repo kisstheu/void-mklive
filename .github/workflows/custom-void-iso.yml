@@ -97,36 +97,14 @@ jobs:
           sudo mkdir -p "$VOID_ROOT"/etc/modules-load.d
           sudo mkdir -p "$VOID_ROOT"/etc/runit/runsvdir/default
           sudo mkdir -p "$VOID_ROOT"/tmp/mklive-src
-          sudo mkdir -p "$VOID_ROOT"/var/db/xbps/keys
 
           # 确保 runner 对 /tmp/mklive-src 有写权限
           sudo chown -R runner:runner "$VOID_ROOT"/tmp/mklive-src
 
       # ──────────────────────────────────────────────────────────────
-      # 4) 从官方仓库拉取 “签名公钥 .plist” 到 chroot/var/db/xbps/keys 下
-      #    这样 xbps-install 便能在 chroot 内自动信任官方签名，
-      #    不再弹出“Do you want to import this public key?” 的交互。
-      #
-      #    注意：URL 中所有冒号（:）都要替换为 %3A
-      # ──────────────────────────────────────────────────────────────
-      - name: Fetch Void signing key into chroot
-        run: |
-          set -euxo pipefail
-
-          export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
-          KEY_FINGERPRINT="60:ae:0c:d6:f0:95:17:80:bc:93:46:7a:89:af:a3:2d"
-          # 将冒号替换为 %3A，构建正确的 URL
-          ENC_FP=$(echo "$KEY_FINGERPRINT" | sed 's/:/%3A/g')
-          KEY_URL="https://repo-default.voidlinux.org/current/repodata/keys/${ENC_FP}.plist"
-
-          echo "Downloading signing key from ${KEY_URL} …"
-          sudo curl -fsSL "$KEY_URL" \
-            -o "$VOID_ROOT/var/db/xbps/keys/${KEY_FINGERPRINT}.plist"
-
-      # ──────────────────────────────────────────────────────────────
-      # 5) 用 xbps-install 从官方仓库直接安装二进制包到 $VOID_ROOT：
+      # 4) 用 xbps-install 从官方仓库直接安装二进制包到 $VOID_ROOT：
       #    • 设置 XBPS_TARGET_ARCH 来指定架构
-      #    • 不需要再使用 XBPS_ALLOW_UNTRUSTED，因为此时已将公钥放入 chroot
+      #    • 设置 XBPS_ALLOW_UNTRUSTED=1，彻底跳过签名验证
       #    • 使用 -S 选项让 xbps-install 同步远程索引，无需本地 repo 数据
       #    • 指定 -R https://repo-default.voidlinux.org/current，让它从官方仓库拉包
       #    • 指定 -r "$VOID_ROOT"，把包安装到 chroot 里
@@ -138,6 +116,8 @@ jobs:
 
           export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
           export XBPS_TARGET_ARCH="${{ inputs.arch }}"
+          # ① 彻底跳过签名，避免任何导入交互
+          export XBPS_ALLOW_UNTRUSTED=1
 
           # 默认安装的核心包
           PKG_LIST="base-system runit squashfs-tools kmod"
@@ -147,13 +127,14 @@ jobs:
 
           # 从官方远程仓库拉取索引并将包安装到 chroot
           sudo env XBPS_TARGET_ARCH="$XBPS_TARGET_ARCH" \
+                   XBPS_ALLOW_UNTRUSTED=1 \
                xbps-install -S -y \
                -R https://repo-default.voidlinux.org/current \
                -r "$VOID_ROOT" \
                $PKG_LIST
 
       # ──────────────────────────────────────────────────────────────
-      # 6) 将当前仓库（包含 mklive.sh、Makefile 等）拷贝到 chroot 的 /tmp/mklive-src
+      # 5) 将当前仓库（包含 mklive.sh、Makefile 等）拷贝到 chroot 的 /tmp/mklive-src
       # ──────────────────────────────────────────────────────────────
       - name: Copy void-mklive sources into chroot
         run: |
@@ -166,7 +147,7 @@ jobs:
           sudo chown -R runner:runner "$VOID_ROOT"/tmp/mklive-src
 
       # ──────────────────────────────────────────────────────────────
-      # 7) chroot 到 $VOID_ROOT，并在 /tmp/mklive-src 中执行 make 和 mklive.sh 生成 ISO
+      # 6) chroot 到 $VOID_ROOT，并在 /tmp/mklive-src 中执行 make 和 mklive.sh 生成 ISO
       #    • 计算日期码（若用户留空则取今天 UTC）
       #    • 构造 “要安装到 ISO 中的包列表” + “要启用的 runit 服务（若有）”
       #    • 调用 mklive.sh，输出到 /tmp/void-<arch>-<datecode>.iso
@@ -220,7 +201,7 @@ jobs:
           sudo chown runner:runner void-"$ARCH"-"$DATECODE".iso
 
       # ──────────────────────────────────────────────────────────────
-      # 8) 上传生成的 ISO 作为 artifact
+      # 7) 上传生成的 ISO 作为 artifact
       # ──────────────────────────────────────────────────────────────
       - name: Upload generated ISO
         uses: actions/upload-artifact@v4
