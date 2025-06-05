@@ -80,8 +80,6 @@ jobs:
 
       # ──────────────────────────────────────────────────────────────
       # 3) 在宿主机上为 chroot 准备一个空目录 VOID_ROOT，并创建 mklive 运行所需的子目录
-      #    这里不需要手动下载仓库索引或签名，只需要确保 chroot 内有 /var/tmp、/etc/modules-load.d、
-      #    /etc/runit/runsvdir/default、/tmp/mklive-src 等目录。
       # ──────────────────────────────────────────────────────────────
       - name: Prepare chroot root (VOID_ROOT)
         run: |
@@ -106,7 +104,7 @@ jobs:
       # ──────────────────────────────────────────────────────────────
       # 4) 用 xbps-install 从官方仓库直接安装二进制包到 $VOID_ROOT：
       #    • 设置 XBPS_TARGET_ARCH 来指定架构
-      #    • 设置 XBPS_ACCEPT_KEY=1，自动接受官方签名
+      #    • 设置 XBPS_ALLOW_UNTRUSTED=1，跳过签名验证
       #    • 使用 -S 选项让 xbps-install 同步远程索引，无需本地 repo 数据
       #    • 指定 -R https://repo-default.voidlinux.org/current，让它从官方仓库拉包
       #    • 指定 -r "$VOID_ROOT"，把包安装到 chroot 里
@@ -118,7 +116,8 @@ jobs:
 
           export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
           export XBPS_TARGET_ARCH="${{ inputs.arch }}"
-          export XBPS_ACCEPT_KEY=1
+          # 用 “ALLOW_UNTRUSTED=1” 跳过签名导入
+          export XBPS_ALLOW_UNTRUSTED=1
 
           # 默认安装的核心包
           PKG_LIST="base-system runit squashfs-tools kmod"
@@ -128,7 +127,7 @@ jobs:
 
           # 从官方远程仓库拉取索引并将包安装到 chroot
           sudo env XBPS_TARGET_ARCH="$XBPS_TARGET_ARCH" \
-                   XBPS_ACCEPT_KEY=1 \
+                   XBPS_ALLOW_UNTRUSTED=1 \
                xbps-install -S -y \
                -R https://repo-default.voidlinux.org/current \
                -r "$VOID_ROOT" \
@@ -136,15 +135,15 @@ jobs:
 
       # ──────────────────────────────────────────────────────────────
       # 5) 将当前仓库（包含 mklive.sh、Makefile 等）拷贝到 chroot 的 /tmp/mklive-src
-      #    使用 cp -a . "$VOID_ROOT/tmp/mklive-src/." 的方式，避免“复制自身” 的问题
       # ──────────────────────────────────────────────────────────────
       - name: Copy void-mklive sources into chroot
         run: |
           set -euxo pipefail
 
-          export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
+          export VOID_ROOT="${ GITHUB_WORKSPACE }/void-root"
 
           # 把仓库里所有文件复制到 chroot 的 /tmp/mklive-src/ 目录下
+          # 注意：使用 “/. ” 防止“复制自身”出错
           cp -a . "$VOID_ROOT"/tmp/mklive-src/.
           sudo chown -R runner:runner "$VOID_ROOT"/tmp/mklive-src
 
@@ -177,12 +176,10 @@ jobs:
             SVC_ARG=""
           fi
 
-          # 进入 chroot 之前确保 /proc /sys /dev /run 都已经准备好
-          # 这里不需要 bind mount，因为我们仅仅在 chroot 内执行 mklive.sh，
-          # 而 mklive.sh 默认会使用 bwrap（bubblewrap）在用户空间创建隔离环境，无需挂载宿主 /proc
+          # 直接 chroot 到 $VOID_ROOT 里执行
           sudo chroot "$VOID_ROOT" /bin/sh -eux <<'EOF'
             cd /tmp/mklive-src
-            # 编译生成最新的 mklive.sh
+            # 编译最新的 mklive.sh
             make
 
             # 构造要在 ISO 里安装的包列表
