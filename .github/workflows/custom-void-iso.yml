@@ -102,13 +102,7 @@ jobs:
           sudo chown -R runner:runner "$VOID_ROOT"/tmp/mklive-src
 
       # ──────────────────────────────────────────────────────────────
-      # 4) 用 xbps-install 从官方仓库直接安装二进制包到 $VOID_ROOT：
-      #    • 设置 XBPS_TARGET_ARCH 来指定架构
-      #    • 设置 XBPS_ALLOW_UNTRUSTED=1，彻底跳过签名验证
-      #    • 使用 -S 选项让 xbps-install 同步远程索引，无需本地 repo 数据
-      #    • 指定 -R https://repo-default.voidlinux.org/current，让它从官方仓库拉包
-      #    • 指定 -r "$VOID_ROOT"，把包安装到 chroot 里
-      #    安装的包：base-system、runit、squashfs-tools、kmod，以及用户自行指定的 extra_packages
+      # 4) 用 xbps-install 从官方仓库直接安装二进制包到 $VOID_ROOT
       # ──────────────────────────────────────────────────────────────
       - name: Bootstrap Void packages into chroot
         run: |
@@ -116,7 +110,7 @@ jobs:
 
           export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
           export XBPS_TARGET_ARCH="${{ inputs.arch }}"
-          # ① 彻底跳过签名，避免任何导入交互
+          # 彻底跳过签名，避免任何导入交互
           export XBPS_ALLOW_UNTRUSTED=1
 
           # 默认安装的核心包
@@ -147,13 +141,9 @@ jobs:
           sudo chown -R runner:runner "$VOID_ROOT"/tmp/mklive-src
 
       # ──────────────────────────────────────────────────────────────
-      # 6) chroot 到 $VOID_ROOT，并在 /tmp/mklive-src 中执行 make 和 mklive.sh 生成 ISO
-      #    • 计算日期码（若用户留空则取今天 UTC）
-      #    • 构造 “要安装到 ISO 中的包列表” + “要启用的 runit 服务（若有）”
-      #    • 调用 mklive.sh，输出到 /tmp/void-<arch>-<datecode>.iso
-      #    生成后，将 ISO 从 chroot 复制回宿主机工作目录
+      # 6) chroot 到 $VOID_ROOT，并在 /tmp/mklive-src 中执行 make live-iso-all 生成 ISO
       # ──────────────────────────────────────────────────────────────
-      - name: chroot and run mklive.sh to build ISO
+      - name: chroot and run Makefile to build ISO
         run: |
           set -euxo pipefail
 
@@ -167,38 +157,25 @@ jobs:
             DATECODE="${{ inputs.datecode }}"
           fi
 
-          # 构造 runit 服务参数（如果用户指定了 extra_services，就加 -S）
-          EXTRA_SVCS="${{ inputs.extra_services }}"
-          if [ -n "$EXTRA_SVCS" ]; then
-            SVC_ARG="-S \"$EXTRA_SVCS\""
-          else
-            SVC_ARG=""
-          fi
+          # 这里我们只做一个 flavor（比如 xfce），也可以改成从输入里读取多个
+          FLAVOR="xfce"
 
-          # 直接 chroot 到 $VOID_ROOT 里执行
-          sudo chroot "$VOID_ROOT" /bin/sh -eux <<'EOF'
+          sudo chroot "$VOID_ROOT" /bin/sh -eux <<EOF
             cd /tmp/mklive-src
-            # 编译最新的 mklive.sh
-            make
 
-            # 构造要在 ISO 里安装的包列表
-            PKG_STR="base-system squashfs-tools kmod"
-            if [ -n "${{ inputs.extra_packages }}" ]; then
-              PKG_STR="\$PKG_STR ${{ inputs.extra_packages }}"
-            fi
+            # 用 Makefile 的 live-iso-all 目标生成 ISO
+            export LIVE_ARCHS="$ARCH"
+            export LIVE_FLAVORS="$FLAVOR"
+            export REPO="https://repo-default.voidlinux.org/current"
+            export DATECODE="$DATECODE"
+            export OUTPUTDIR="/tmp"
 
-            # 调用 mklive.sh 生成 ISO
-            eval "./mklive.sh \
-              -a \"$ARCH\" \
-              -r https://repo-default.voidlinux.org/current \
-              -p \"\$PKG_STR\" \
-              $SVC_ARG \
-              -o /tmp/void-\$ARCH-$DATECODE.iso"
+            make live-iso-all
           EOF
 
           # 把生成的 ISO 从 chroot 复制回 workspace 根目录
-          sudo cp "$VOID_ROOT"/tmp/void-"$ARCH"-"$DATECODE".iso .
-          sudo chown runner:runner void-"$ARCH"-"$DATECODE".iso
+          sudo cp "$VOID_ROOT"/tmp/void-"$ARCH"-"$FLAVOR"-"$DATECODE".iso .
+          sudo chown runner:runner void-"$ARCH"-"$FLAVOR"-"$DATECODE".iso
 
       # ──────────────────────────────────────────────────────────────
       # 7) 上传生成的 ISO 作为 artifact
