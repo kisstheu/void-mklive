@@ -1,4 +1,4 @@
-name: Build Void Live ISO from Scratch
+name: Build Void Live ISO from Official Repo
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
         required: true
         type: string
       datecode:
-        description: "日期码 (YYYYMMDD, 若留空则自动取今天 UTC)"
+        description: "日期码 (YYYYMMDD，若留空则自动取今天 UTC)"
         required: false
         type: string
       extra_packages:
@@ -24,57 +24,109 @@ on:
         type: string
 
 jobs:
-  build:
+  build-iso:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
-      # 1) 检出 fork 的 void-mklive 仓库，确保 mklive.sh 是最新的
+      # ──────────────────────────────────────────────────────────────
+      # 1) Checkout 仓库，确保包含最新的 mklive.sh、Makefile、mkiso.sh 等
+      # ──────────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2) 准备 chroot 根目录 /void-root，并在其中创建必要的目录结构
+      # ──────────────────────────────────────────────────────────────
+      # 2) 安装宿主机所需软件：xbps-static、curl、tar、xz-utils、bubblewrap、
+      #    squashfs-tools、kmod、grub2、genisoimage、mtools、make、gettext、file、bash
+      # ──────────────────────────────────────────────────────────────
+      - name: Prepare host environment
+        run: |
+          set -euxo pipefail
+
+          # 安装必要的工具
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates \
+            curl \
+            xz-utils \
+            tar \
+            bubblewrap \
+            squashfs-tools \
+            kmod \
+            grub2-common \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            genisoimage \
+            mtools \
+            make \
+            gettext \
+            file \
+            bash \
+            bash-completion
+
+          sudo rm -rf /var/lib/apt/lists/*
+
+          # 下载并解压 xbps-static（x86_64-musl 版本），供后续 xbps-install 使用
+          sudo mkdir -p /opt/xbps
+          curl -L https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz \
+            | sudo tar -xJ -C /opt/xbps
+          sudo chmod -R a+rx /opt/xbps
+
+          # 将 xbps-static 中的各个工具建立软链接到 /usr/local/bin 下（去掉“.static”后缀）
+          for tool in xbps-install.static xbps-query.static xbps-rindex.static xbps-uhelper.static xbps-uchroot.static xbps-uunshare.static; do
+            sudo ln -sf /opt/xbps/usr/bin/$tool /usr/local/bin/${tool%.static}
+          done
+
+      # ──────────────────────────────────────────────────────────────
+      # 3) 在宿主机上为 chroot 准备一个空目录 VOID_ROOT，并创建 mklive 运行所需的子目录
+      #    这里不需要手动下载仓库索引或签名，只需要确保 chroot 内有 /var/tmp、/etc/modules-load.d、
+      #    /etc/runit/runsvdir/default、/tmp/mklive-src 等目录。
+      # ──────────────────────────────────────────────────────────────
       - name: Prepare chroot root (VOID_ROOT)
         run: |
           set -euxo pipefail
-          # 定义 chroot 根目录变量
-          export VOID_ROOT="${{ github.workspace }}/void-root"
 
-          # (a) 先干净地删掉上次可能残留的目录
+          # 定义 chroot 根目录
+          export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
+
+          # 删除旧目录并重建
           sudo rm -rf "$VOID_ROOT"
           sudo mkdir -p "$VOID_ROOT"
 
-          # (b) 在 chroot 内创建 mklive 运行时需要的目录
-          #     包括 /var/tmp、/etc/modules-load.d、/etc/runit/runsvdir/default，以及 /tmp/mklive-src
+          # 创建 mklive 所需的目录结构
           sudo mkdir -p "$VOID_ROOT"/var/tmp
           sudo mkdir -p "$VOID_ROOT"/etc/modules-load.d
           sudo mkdir -p "$VOID_ROOT"/etc/runit/runsvdir/default
           sudo mkdir -p "$VOID_ROOT"/tmp/mklive-src
-          # （额外保底）创建 xbps 公钥存放目录（一般不用放真正的 key，只是保证路径存在）
-          sudo mkdir -p "$VOID_ROOT"/var/db/xbps/keys
 
-          # (c) 赋予 /tmp/mklive-src 对当前 runner 用户可写权限
-          sudo chown -R "runner:runner" "$VOID_ROOT"/tmp/mklive-src
+          # 确保 runner 对 /tmp/mklive-src 有写权限
+          sudo chown -R runner:runner "$VOID_ROOT"/tmp/mklive-src
 
-      # 3) 在 chroot 中从官方仓库安装 base-system、runit、squashfs-tools、kmod 以及用户自选额外包
-      - name: Bootstrap packages into chroot via xbps-install
+      # ──────────────────────────────────────────────────────────────
+      # 4) 用 xbps-install 从官方仓库直接安装二进制包到 $VOID_ROOT：
+      #    • 设置 XBPS_TARGET_ARCH 来指定架构
+      #    • 设置 XBPS_ACCEPT_KEY=1，自动接受官方签名
+      #    • 使用 -S 选项让 xbps-install 同步远程索引，无需本地 repo 数据
+      #    • 指定 -R https://repo-default.voidlinux.org/current，让它从官方仓库拉包
+      #    • 指定 -r "$VOID_ROOT"，把包安装到 chroot 里
+      #    安装的包：base-system、runit、squashfs-tools、kmod，以及用户自行指定的 extra_packages
+      # ──────────────────────────────────────────────────────────────
+      - name: Bootstrap Void packages into chroot
         run: |
           set -euxo pipefail
-          export VOID_ROOT="${{ github.workspace }}/void-root"
-          # 传递架构到 xbps-install
+
+          export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
           export XBPS_TARGET_ARCH="${{ inputs.arch }}"
-          # 自动接受 RSA 公钥，避免交互提示 （参考 :contentReference[oaicite:0]{index=0}）
           export XBPS_ACCEPT_KEY=1
 
-          # 构建要安装的包列表：base-system 和 mklive 生成 ISO 最少需要的工具
+          # 默认安装的核心包
           PKG_LIST="base-system runit squashfs-tools kmod"
-          # 如果用户指定了额外包，就追加到列表末尾
           if [ -n "${{ inputs.extra_packages }}" ]; then
             PKG_LIST="$PKG_LIST ${{ inputs.extra_packages }}"
           fi
 
-          # 运行 xbps-install，把所有包都安装到 $VOID_ROOT 下
-          # -S: 同步仓库索引；-y: 自动确认
-          # -R <url>: 指定官方仓库地址；-r <root>: 指定 chroot 根目录
+          # 从官方远程仓库拉取索引并将包安装到 chroot
           sudo env XBPS_TARGET_ARCH="$XBPS_TARGET_ARCH" \
                    XBPS_ACCEPT_KEY=1 \
                xbps-install -S -y \
@@ -82,79 +134,79 @@ jobs:
                -r "$VOID_ROOT" \
                $PKG_LIST
 
-          # 安装完成后，把 chroot 内 /var/db/xbps/keys 拥有者设为 root:root，并设置正确权限
-          sudo mkdir -p "$VOID_ROOT"/var/db/xbps/keys
-          # 如果后续真的需要推送 key 文件，也可以放到这里，否则公钥已自动接受，不会再提示
-
-      # 4) 将当前仓库内容（含 mklive.sh 等）拷贝到 chroot 的 /tmp/mklive-src
+      # ──────────────────────────────────────────────────────────────
+      # 5) 将当前仓库（包含 mklive.sh、Makefile 等）拷贝到 chroot 的 /tmp/mklive-src
+      #    使用 cp -a . "$VOID_ROOT/tmp/mklive-src/." 的方式，避免“复制自身” 的问题
+      # ──────────────────────────────────────────────────────────────
       - name: Copy void-mklive sources into chroot
         run: |
           set -euxo pipefail
-          export VOID_ROOT="${{ github.workspace }}/void-root"
 
-          # 把仓库里所有文件（包括隐藏文件）拷贝到 chroot 的 /tmp/mklive-src/ 目录下
-          # 关键点：用 ./. 作为源，和 /tmp/mklive-src/. 作为目标，防止 “cannot copy a directory into itself”
+          export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
+
+          # 把仓库里所有文件复制到 chroot 的 /tmp/mklive-src/ 目录下
           cp -a . "$VOID_ROOT"/tmp/mklive-src/.
-          # 确保 runner 用户在 chroot 内有对 /tmp/mklive-src 的写权限
-          sudo chown -R "runner:runner" "$VOID_ROOT"/tmp/mklive-src
+          sudo chown -R runner:runner "$VOID_ROOT"/tmp/mklive-src
 
-      # 5) chroot 进入 “VOID_ROOT”，再在 /tmp/mklive-src 目录里执行 mklive.sh 生成 ISO
+      # ──────────────────────────────────────────────────────────────
+      # 6) chroot 到 $VOID_ROOT，并在 /tmp/mklive-src 中执行 make 和 mklive.sh 生成 ISO
+      #    • 计算日期码（若用户留空则取今天 UTC）
+      #    • 构造 “要安装到 ISO 中的包列表” + “要启用的 runit 服务（若有）”
+      #    • 调用 mklive.sh，输出到 /tmp/void-<arch>-<datecode>.iso
+      #    生成后，将 ISO 从 chroot 复制回宿主机工作目录
+      # ──────────────────────────────────────────────────────────────
       - name: chroot and run mklive.sh to build ISO
         run: |
           set -euxo pipefail
-          export VOID_ROOT="${{ github.workspace }}/void-root"
+
+          export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
           export ARCH="${{ inputs.arch }}"
 
-          # 计算当天日期码，若用户输入了 datecode 就用用户输入的
+          # 计算日期码
           if [ -z "${{ inputs.datecode }}" ]; then
             DATECODE=$(date -u +%Y%m%d)
           else
             DATECODE="${{ inputs.datecode }}"
           fi
 
-          # extra_services（runit 服务列表），如果非空，则构建 -S 参数
+          # 构造 runit 服务参数（如果用户指定了 extra_services，就加 -S）
           EXTRA_SVCS="${{ inputs.extra_services }}"
           if [ -n "$EXTRA_SVCS" ]; then
-            # 注意：放在引号里，以防有空格
             SVC_ARG="-S \"$EXTRA_SVCS\""
           else
             SVC_ARG=""
           fi
 
-          # 进入 chroot 之前，确保 chroot 下 /bin/sh、/usr/bin/env 等能正常执行
-          # 因为在 $VOID_ROOT 里已经安装了 base-system，包含 bash、dash、coreutils 等
-
-          sudo chroot "$VOID_ROOT" /bin/sh -eux <<EOF
-            # 切换到 /tmp/mklive-src，确保 mklive.sh 在最新状态
+          # 进入 chroot 之前确保 /proc /sys /dev /run 都已经准备好
+          # 这里不需要 bind mount，因为我们仅仅在 chroot 内执行 mklive.sh，
+          # 而 mklive.sh 默认会使用 bwrap（bubblewrap）在用户空间创建隔离环境，无需挂载宿主 /proc
+          sudo chroot "$VOID_ROOT" /bin/sh -eux <<'EOF'
             cd /tmp/mklive-src
             # 编译生成最新的 mklive.sh
             make
 
-            # 生成完整的包列表字符串（注意：mklive.sh 里要先安装 base-system，然后再安装 squashfs-tools、kmod 和用户额外包）
+            # 构造要在 ISO 里安装的包列表
             PKG_STR="base-system squashfs-tools kmod"
             if [ -n "${{ inputs.extra_packages }}" ]; then
               PKG_STR="\$PKG_STR ${{ inputs.extra_packages }}"
             fi
 
             # 调用 mklive.sh 生成 ISO
-            #  -a: 架构
-            #  -r: 官方仓库
-            #  -p: 指定要在 ISO 里安装哪些包
-            #  -S: 如果有额外服务，则启用
-            #  -o: 输出文件名
-            #  https://repo-default.voidlinux.org/current 是官方二进制仓库
             eval "./mklive.sh \
               -a \"$ARCH\" \
               -r https://repo-default.voidlinux.org/current \
               -p \"\$PKG_STR\" \
               $SVC_ARG \
-              -o /tmp/void-\$ARCH-\$DATECODE.iso"
+              -o /tmp/void-\$ARCH-$DATECODE.iso"
           EOF
 
-          # 把生成好的 ISO 从 chroot 复制回宿主机 workspace 根目录
+          # 把生成的 ISO 从 chroot 复制回 workspace 根目录
           sudo cp "$VOID_ROOT"/tmp/void-"$ARCH"-"$DATECODE".iso .
+          sudo chown runner:runner void-"$ARCH"-"$DATECODE".iso
 
-      # 6) 上传生成的 ISO 作为 artifact，方便下载
+      # ──────────────────────────────────────────────────────────────
+      # 7) 上传生成的 ISO 作为 artifact
+      # ──────────────────────────────────────────────────────────────
       - name: Upload generated ISO
         uses: actions/upload-artifact@v4
         with:
