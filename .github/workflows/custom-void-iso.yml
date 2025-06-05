@@ -120,12 +120,12 @@ jobs:
           fi
 
           # 从官方远程仓库拉取索引并将包安装到 chroot
-          sudo env XBPS_TARGET_ARCH="$XBPS_TARGET_ARCH" \
-                   XBPS_ALLOW_UNTRUSTED=1 \
-               xbps-install -S -y \
-               -R https://repo-default.voidlinux.org/current \
-               -r "$VOID_ROOT" \
-               $PKG_LIST
+          # sudo env XBPS_TARGET_ARCH="$XBPS_TARGET_ARCH" \
+          #          XBPS_ALLOW_UNTRUSTED=1 \
+          #      xbps-install -S -y \
+          #      -R https://repo-default.voidlinux.org/current \
+          #      -r "$VOID_ROOT" \
+          #      $PKG_LIST
 
       # ──────────────────────────────────────────────────────────────
       # 5) 将当前仓库（包含 mklive.sh、Makefile 等）拷贝到 chroot 的 /tmp/mklive-src
