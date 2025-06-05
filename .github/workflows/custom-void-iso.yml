@@ -137,7 +137,7 @@ jobs:
           export VOID_ROOT="${GITHUB_WORKSPACE}/void-root"
 
           # 把仓库里所有文件复制到 chroot 的 /tmp/mklive-src/ 目录下
-          cp -a . "$VOID_ROOT"/tmp/mklive-src/.
+          # cp -a . "$VOID_ROOT"/tmp/mklive-src/.
           sudo chown -R runner:runner "$VOID_ROOT"/tmp/mklive-src
 
       # ──────────────────────────────────────────────────────────────
