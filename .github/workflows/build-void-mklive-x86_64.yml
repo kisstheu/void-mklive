@@ -1,0 +1,65 @@
+name: Build void-mklive (x86_64 only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - container/**
+  pull_request:
+    branches:
+      - master
+    paths:
+      - container/**
+  schedule:
+    - cron: '0 0 * * *'   # 每天 UTC 零点自动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write   # 允许推送到 GHCR
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine next date‐based tag
+        id: calc_tag
+        run: |
+          tag="$(
+            skopeo list-tags "docker://ghcr.io/${{ github.repository_owner }}/void-mklive" \
+              | jq -r '.Tags 
+                         | sort 
+                         | reverse 
+                         | map(select(test("^[0-9]{8}(R[0-9]+)?$"))) 
+                         | .[0]'
+          )"
+          if [ "${tag%R*}" != "$(date -u +%Y%m%d)" ] || [ "${tag%R*}" = "${tag}" ]; then
+            rel=1
+          else
+            rel=$(( ${tag##*R} + 1 ))
+          fi
+          newtag="$(date -u +%Y%m%d)R${rel}"
+          echo "newtag=$newtag" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push x86_64 image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./container
+          file:    ./container/Containerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/void-mklive:latest
+            ghcr.io/${{ github.repository_owner }}/void-mklive:${{ steps.calc_tag.outputs.newtag }}
