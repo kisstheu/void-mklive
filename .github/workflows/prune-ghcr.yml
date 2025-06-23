@@ -16,6 +16,7 @@ jobs:
         with:
           owner: ${{ github.repository_owner }}
           repo: void-mklive
-          package-name: void-mklive     # your container repo name
+          package-name: void-mklive     
+          package-type: container
           num-old-versions-to-delete: 3
           token: ${{ secrets.GITHUB_TOKEN }}
