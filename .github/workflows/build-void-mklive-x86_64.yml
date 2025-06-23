@@ -2,18 +2,6 @@ name: Build void-mklive (x86_64 only)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    paths:
-      - container/**
-  pull_request:
-    branches:
-      - master
-    paths:
-      - container/**
-  schedule:
-    - cron: '0 0 * * *'   # 每天 UTC 零点自动触发
 
 jobs:
   build:
