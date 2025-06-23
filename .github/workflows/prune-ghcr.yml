@@ -1,17 +1,17 @@
-# .github/workflows/prune-ghcr.yml
-name: "Prune old GHCR versions"
+name: Prune GHCR versions
 on:
   schedule:
-    - cron: "0 3 * * *"     # 每天 UTC 03:00 自动跑一次
+    - cron: "0 3 * * *"  # every day at 03:00 UTC
+
 jobs:
   prune:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete old package versions
+      - name: Delete old GHCR versions
         uses: actions/delete-package-versions@v1
         with:
-          package-type: "container"
-          # 这里写你的 GitHub 用户名/组织名
-          package-name: "kisstheu"
-          days-before: 30     # 保留最近 30 天内推送过的版本
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          package-name: void-mklive     # your container repo name
+          num-old-versions-to-delete: 10 # keeps the 10 newest, deletes the rest
           token: ${{ secrets.GITHUB_TOKEN }}
