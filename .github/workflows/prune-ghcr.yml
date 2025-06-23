@@ -1,5 +1,6 @@
 name: Prune GHCR versions
 on:
+  workflow_dispatch:
   schedule:
     - cron: "0 3 * * *"  # every day at 03:00 UTC
 
