@@ -3,16 +3,19 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 3 * * *"  # every day at 03:00 UTC
-
+permissions:
+  contents: read
+  packages: write    # 需要 write 权限才能删除包版本
+  
 jobs:
   prune:
     runs-on: ubuntu-latest
     steps:
       - name: Delete old GHCR versions
-        uses: actions/delete-package-versions@v1
+        uses: actions/delete-package-versions@v2
         with:
           owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
+          repo: ${{ github.repository }}
           package-name: void-mklive     # your container repo name
-          num-old-versions-to-delete: 10 # keeps the 10 newest, deletes the rest
+          num-old-versions-to-delete: 3
           token: ${{ secrets.GITHUB_TOKEN }}
