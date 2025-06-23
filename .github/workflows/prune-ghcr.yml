@@ -15,7 +15,7 @@ jobs:
         uses: actions/delete-package-versions@v2
         with:
           owner: ${{ github.repository_owner }}
-          repo: ${{ github.repository }}
+          repo: void-mklive
           package-name: void-mklive     # your container repo name
           num-old-versions-to-delete: 3
           token: ${{ secrets.GITHUB_TOKEN }}
