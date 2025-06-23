@@ -17,13 +17,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gh jq
-
-      - name: Authenticate GH CLI
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "${GITHUB_TOKEN}" | gh auth login --with-token
-
+          
       - name: Fetch old versions & delete
         env:
           OWNER: ${{ github.repository_owner }}
@@ -31,6 +25,7 @@ jobs:
           PACKAGE: void-mklive
           KEEP_COUNT: 5         # 保留最新 5 个版本
           DAYS_OLD: 3          # 30 天以前
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # 1) 用 GraphQL 拉最新 100 个版本（按创建时间倒序）
           VERSIONS_JSON=$(
