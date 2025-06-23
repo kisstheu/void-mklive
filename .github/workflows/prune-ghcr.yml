@@ -1,22 +1,70 @@
 name: Prune GHCR versions
+
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 3 * * *"  # every day at 03:00 UTC
+    - cron: "0 3 * * *"  # 每天 03:00 UTC 运行
+
 permissions:
   contents: read
-  packages: write    # 需要 write 权限才能删除包版本
-  
+  packages: write    # 删除包版本需 write 权限
+
 jobs:
   prune:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete old GHCR versions
-        uses: actions/delete-package-versions@v2
-        with:
-          owner: ${{ github.repository_owner }}
-          repo: void-mklive
-          package-name: void-mklive     
-          package-type: container
-          num-old-versions-to-delete: 3
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gh jq
+
+      - name: Authenticate GH CLI
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${GITHUB_TOKEN}" | gh auth login --with-token
+
+      - name: Fetch old versions & delete
+        env:
+          OWNER: ${{ github.repository_owner }}
+          REPO: void-mklive
+          PACKAGE: void-mklive
+          KEEP_COUNT: 5         # 保留最新 5 个版本
+          DAYS_OLD: 3          # 30 天以前
+        run: |
+          # 1) 用 GraphQL 拉最新 100 个版本（按创建时间倒序）
+          VERSIONS_JSON=$(
+            gh api graphql -f query='
+              query($owner:String!,$repo:String!,$pkg:String!) {
+                repository(owner:$owner,name:$repo) {
+                  packages(first:1,packageType:CONTAINER,names:[$pkg]) {
+                    nodes {
+                      versions(first:100,orderBy:{field:CREATED_AT,direction:DESC}) {
+                        nodes { id,version,createdAt }
+                      }
+                    }
+                  }
+                }
+              }' \
+              -f owner="$OWNER" -f repo="$REPO" -f pkg="$PACKAGE"
+          )
+
+          # 2) 用 jq 筛选出创建时间在 DAYS_OLD 之前的版本列表，跳过前 KEEP_COUNT 个
+          IDS_TO_DELETE=$(jq -r --argjson keep "$KEEP_COUNT" --arg days "$DAYS_OLD" '
+            .data.repository.packages.nodes[0].versions.nodes
+            | map(select(.createdAt < (now | todateiso8601 | strptime("%Y-%m-%dT%H:%M:%SZ") | (.[0] - ($days|tonumber*86400)))))
+            | .[ $keep : ]? | .[].id
+          ' <<<"$VERSIONS_JSON")
+
+          if [ -z "$IDS_TO_DELETE" ]; then
+            echo "No old versions to delete."
+            exit 0
+          fi
+
+          # 3) 逐个调用 REST API 删除
+          echo "$IDS_TO_DELETE" | \
+          xargs -r -n1 -I{} gh api \
+            --method DELETE \
+            /user/packages/container/$PACKAGE/versions/{}
+
+          echo "Deleted $(wc -l <<<"$IDS_TO_DELETE") old versions."
