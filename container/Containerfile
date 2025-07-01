@@ -1,4 +1,4 @@
-FROM ghcr.io/void-linux/void-glibc-full:latest
+FROM ghcr.io/kisstheu/void-glibc-full:latest
 
 ARG MIRROR="https://repo-default.voidlinux.org/"
 
