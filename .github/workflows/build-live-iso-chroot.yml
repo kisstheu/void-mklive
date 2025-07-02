@@ -63,6 +63,11 @@ jobs:
           # 3) 同步 DNS
           sudo touch /srv/void-rootfs/etc/resolv.conf
           sudo mount --bind /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
+
+          sudo mkdir -p /srv/void-rootfs/etc/ssl/certs
+          sudo touch /srv/void-rootfs/etc/ssl/certs/ca-certificates.crt
+          sudo mount --bind /etc/ssl/certs/ca-certificates.crt \
+               /srv/void-rootfs/etc/ssl/certs/ca-certificates.crt
       
       - name: Ensure /tmp inside rootfs        
         run: |
@@ -73,9 +78,7 @@ jobs:
         run: |
           sudo mkdir -p /srv/void-rootfs/workspace
           sudo mount --bind $GITHUB_WORKSPACE /srv/void-rootfs/workspace
-          sudo mkdir -p /srv/void-rootfs/etc/ssl/certs
-          sudo mount --bind /etc/ssl/certs/ca-certificates.crt \
-               /srv/void-rootfs/etc/ssl/certs/ca-certificates.crt
+
 
 
       - name: 在 chroot 中构建 Live ISO
