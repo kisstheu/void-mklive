@@ -52,10 +52,16 @@ jobs:
 
           sudo xbps-reconfigure -r /srv/void-rootfs -fa
 
+
+      - name: Make rootfs a real mountpoint
+        run: |
+          sudo mount --bind /srv/void-rootfs /srv/void-rootfs
+          
+      
       - name: 挂载 pseudo-filesystems
         run: |
           # 1) 建挂载点（目录）
-          sudo mkdir -p /srv/void-rootfs/{dev/pts,dev,proc,sys,run,etc,lib/modules}
+          sudo mkdir -p /srv/void-rootfs/{dev/pts,dev,proc,sys,run,etc,lib/modules,workspace}
       
           # 2) bind-mount 目录型 pseudo-fs
           for fs in dev dev/pts proc sys run; do
@@ -63,7 +69,8 @@ jobs:
           done
 
           sudo mount --bind /lib/modules /srv/void-rootfs/lib/modules
-          
+          # workspace
+          sudo mount --bind $GITHUB_WORKSPACE /srv/void-rootfs/workspace
           # 3) 同步 DNS
           sudo touch /srv/void-rootfs/etc/resolv.conf
           sudo mount --bind /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
@@ -80,9 +87,7 @@ jobs:
           sudo mount --bind $GITHUB_WORKSPACE /srv/void-rootfs/workspace
 
 
-      - name: Make rootfs a real mountpoint
-        run: |
-          sudo mount --bind /srv/void-rootfs /srv/void-rootfs
+
 
       - name: Build Live ISO inside new mount-ns
         run: |
