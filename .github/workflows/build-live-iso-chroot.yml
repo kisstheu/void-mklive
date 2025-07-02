@@ -55,13 +55,15 @@ jobs:
       - name: 挂载 pseudo-filesystems
         run: |
           # 1) 建挂载点（目录）
-          sudo mkdir -p /srv/void-rootfs/{dev/pts,dev,proc,sys,run,etc}
+          sudo mkdir -p /srv/void-rootfs/{dev/pts,dev,proc,sys,run,etc,lib/modules}
       
           # 2) bind-mount 目录型 pseudo-fs
           for fs in dev dev/pts proc sys run; do
             sudo mount --bind /$fs /srv/void-rootfs/$fs
           done
-      
+
+          sudo mount --bind /lib/modules /srv/void-rootfs/lib/modules
+          
           # 3) 同步 DNS
           sudo touch /srv/void-rootfs/etc/resolv.conf
           sudo mount --bind /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
