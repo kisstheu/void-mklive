@@ -30,7 +30,7 @@ jobs:
 
       - name: 安装 xbps-static
         run: |
-          curl -fsSL https://repo-ci.voidlinux.org/static/xbps-static-0.59_5.x86_64-glibc.tar.xz \
+          curl -fsSL https://repo-ci.voidlinux.org/static/xbps-static-0.59_5.x86_64-musl.tar.xz \
             | sudo tar -xJ -C /usr/local/bin --strip-components=1 xbps-static
 
       - name: Bootstrap Void 根文件系统
