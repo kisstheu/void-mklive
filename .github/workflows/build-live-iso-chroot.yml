@@ -112,7 +112,6 @@ jobs:
 
       - name: 打包并上传 ISO
         run: |
-          cd /workspace
           make dist DATECODE=$DATECODE
 
       - name: 上传构建产物
