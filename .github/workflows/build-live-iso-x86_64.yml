@@ -35,69 +35,55 @@ jobs:
           if [ -z "$flavors" ]; then
             flavors="base xfce"
           fi
-
-          # 用 -s 读入整个字符串、-R raw 输入、-c 压缩输出
           json_arr=$(printf '%s' "$flavors" \
             | jq -R -s -c 'split("\\s+")')
-
           echo "live_flavors=$json_arr" >>"$GITHUB_OUTPUT"
 
-
-      - name: Debug print
-        if: ${{ always() }}
-        run: |
-          echo ">>> live_flavors is ${{ needs.prepare.outputs.live_flavors }}"
-
-
-  build-live-isos:
-    name: Build x86_64 Live ISOs
+  build:
+    name: Build Container & Live ISO
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
       matrix:
         arch: ["x86_64"]
         flavor: ${{ fromJson(needs.prepare.outputs.live_flavors) }}
-    container:
-      image: ghcr.io/kisstheu/void-glibc-full:latest
-      options: --privileged
-      volumes:
-        - /dev:/dev
     env:
-      PATH: "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/sbin:/usr/local/bin:/tmp/bin"
-      MKLIVE_REV: "${{ needs.prepare.outputs.datecode }}"
+      REPOSITORY: ${{ needs.prepare.outputs.mirror }}
+      DATECODE:   ${{ needs.prepare.outputs.datecode }}
+
     steps:
+      # 1) 签出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install mklive 依赖工具
+      # 2) 本地构建 void-glibc-full 镜像
+      - name: Build void-glibc-full image
         run: |
-          xbps-install -SyuR "${{ needs.prepare.outputs.mirror }}/current" xbps \
-          && xbps-install -yuR "${{ needs.prepare.outputs.mirror }}/current" \
-          && xbps-install -yuR "${{ needs.prepare.outputs.mirror }}/current" \
-             bash make git kmod xz lzo \
-             qemu-user-arm qemu-user-aarch64 binfmt-support \
-             dosfstools e2fsprogs
+          docker build . \
+            -f Containerfile \
+            -t void-glibc-full:latest
 
-      - name: Ensure xbps is up-to-date
-        run: xbps-install -Syu
-
-      - name: Build Live ISO (x86_64, flavor=${{ matrix.flavor }})
-        shell: bash
+      # 3) 用刚构建的本地镜像来跑 mkliveiso
+      - name: Build Live ISO (arch=${{ matrix.arch }}, flavor=${{ matrix.flavor }})
         run: |
-          set -euxo pipefail
-          make live-iso-all-print live-iso-all \
-            SUDO= \
-            REPOSITORY="${{ needs.prepare.outputs.mirror }}" \
-            DATECODE="${{ needs.prepare.outputs.datecode }}" \
-            LIVE_ARCHS="${{ matrix.arch }}" \
-            LIVE_FLAVORS="${{ matrix.flavor }}"
+          docker run --rm --privileged \
+            -v /dev:/dev \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            void-glibc-full:latest \
+            make live-iso-all-print live-iso-all \
+              SUDO= \
+              REPOSITORY="${REPOSITORY}" \
+              DATECODE="${DATECODE}" \
+              LIVE_ARCHS="${{ matrix.arch }}" \
+              LIVE_FLAVORS="${{ matrix.flavor }}"
 
+      # 4) 打包并上传 ISO
       - name: Package artifacts
-        run: make dist DATECODE="${{ needs.prepare.outputs.datecode }}"
+        run: make dist DATECODE="${DATECODE}"
 
       - name: Upload ISO artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: void-iso-${{ matrix.arch }}-${{ matrix.flavor }}-${{ needs.prepare.outputs.datecode }}
-          path: distdir-${{ needs.prepare.outputs.datecode }}/*
-          if-no-files-found: error
+          name: void-iso-${{ matrix.arch }}-${{ matrix.flavor }}-${{ DATECODE }}
+          path: distdir-${{ DATECODE }}/*
