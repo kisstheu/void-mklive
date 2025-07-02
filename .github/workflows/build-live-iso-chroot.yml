@@ -79,8 +79,9 @@ jobs:
 
       - name: 在 chroot 中构建 Live ISO
         run: |
-          sudo chroot /srv/void-rootfs env XBPS_KEEP_ALL=1 XBPS_NOCHECK=1 /bin/bash -lc "
+          sudo chroot /srv/void-rootfs /bin/bash -lc "
             cd /workspace
+            export XBPS_SKIP_SSL_VERIFY=1
             make live-iso-all-print live-iso-all \
               SUDO= \
               REPOSITORY=$REPOSITORY \
