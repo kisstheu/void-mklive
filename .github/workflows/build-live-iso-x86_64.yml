@@ -15,22 +15,39 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       datecode: ${{ steps.get_datecode.outputs.datecode }}
-      live_flavors: ${{ steps.jsonify.outputs.live_flavors }}
+      live_flavors: ${{ steps.parse_flavors.outputs.live_flavors }}
       mirror: ${{ steps.set_mirror.outputs.mirror }}
     steps:
       - name: Derive datecode (UTC YYYYMMDD)
         id: get_datecode
         run: |
           echo "datecode=$(date -u +%Y%m%d)" >>"$GITHUB_OUTPUT"
+
       - name: Set official mirror
         id: set_mirror
         run: |
           echo "mirror=https://repo-ci.voidlinux.org/current" >>"$GITHUB_OUTPUT"
+
       - name: Parse live_flavors into JSON array
-        id: jsonify
+        id: parse_flavors
         run: |
-          echo "live_flavors=$(echo '${{ github.event.inputs.live_flavors }}' \
-            | sed 's/\s\+/ /g' | jq -Rrc 'split(\" \")')" >>"$GITHUB_OUTPUT"
+          # 1) 取输入或回退到默认值
+          flavors="${{ github.event.inputs.live_flavors }}"
+          if [ -z "$flavors" ]; then
+            flavors="base xfce"
+          fi
+
+          # 2) 切分空格并输出为 JSON 数组
+          json_arr=$(printf '%s' "$flavors" \
+            | jq -R -s 'split("\\s+")')
+
+          echo "live_flavors=$json_arr" >>"$GITHUB_OUTPUT"
+
+      - name: Debug print
+        if: ${{ always() }}
+        run: |
+          echo ">>> live_flavors is ${{ needs.prepare.outputs.live_flavors }}"
+
 
   build-live-isos:
     name: Build x86_64 Live ISOs
