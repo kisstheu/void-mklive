@@ -16,6 +16,7 @@ jobs:
     env:
       REPOSITORY: https://repo-ci.voidlinux.org/current
       LIVE_FLAVOR: ${{ github.event.inputs.live_flavor }}
+      XBPS_TARGET_ARCH: x86_64
     steps:
       - name: Checkout 源码
         uses: actions/checkout@v4
@@ -37,11 +38,11 @@ jobs:
         run: |
           sudo mkdir -p /srv/void-rootfs
           # 同步索引
-          sudo XBPS_TARGET_ARCH=x86_64 xbps-install -S \
+          sudo  xbps-install -S \
             -R $REPOSITORY \
             -r /srv/void-rootfs
           # 安装基础包
-          sudo XBPS_TARGET_ARCH=x86_64 xbps-install -y \
+          sudo  xbps-install -y \
             -R $REPOSITORY \
             -r /srv/void-rootfs \
             base-system bash make git kmod \
