@@ -82,6 +82,7 @@ jobs:
         run: xbps-install -Syu
 
       - name: Build Live ISO (x86_64, flavor=${{ matrix.flavor }})
+        shell: bash
         run: |
           set -euxo pipefail
           make live-iso-all-print live-iso-all \
