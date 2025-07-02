@@ -1,0 +1,85 @@
+name: Build Void Linux Live ISO (chroot)
+
+on:
+  workflow_dispatch:
+    inputs:
+      live_flavor:
+        description: "Live ISO 变体 (例如：base 或 xfce)"
+        required: false
+        default: "base"
+        type: string
+
+jobs:
+  build-iso:
+    name: 构建 Live ISO
+    runs-on: ubuntu-latest
+    env:
+      REPOSITORY: https://repo-ci.voidlinux.org/current
+      LIVE_FLAVOR: ${{ github.event.inputs.live_flavor }}
+    steps:
+      - name: Checkout 源码
+        uses: actions/checkout@v4
+
+      - name: 生成 DATECODE (UTC YYYYMMDD)
+        id: vars
+        run: |
+          echo "DATECODE=$(date -u +%Y%m%d)" >> $GITHUB_ENV
+
+      - name: 注册 QEMU binfmt (跨架构支持，可选)
+        uses: docker/setup-qemu-action@v2
+
+      - name: 安装 xbps-static
+        run: |
+          curl -fsSL https://repo-ci.voidlinux.org/static/xbps-static-0.59_5.x86_64-glibc.tar.xz \
+            | sudo tar -xJ -C /usr/local/bin --strip-components=1 xbps-static
+
+      - name: Bootstrap Void 根文件系统
+        run: |
+          sudo mkdir -p /srv/void-rootfs
+          # 同步索引
+          sudo xbps-install -S \
+            -R $REPOSITORY \
+            -r /srv/void-rootfs
+          # 安装基础包
+          sudo xbps-install -y \
+            -R $REPOSITORY \
+            -r /srv/void-rootfs \
+            base-system bash make git kmod \
+            dosfstools e2fsprogs xz lzo \
+            qemu-user-static binfmt-support
+
+      - name: 挂载 pseudo-filesystems
+        run: |
+          for fs in dev dev/pts proc sys run; do
+            sudo mount --bind /$fs /srv/void-rootfs/$fs
+          done
+          sudo mount --bind /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
+
+      - name: 在 chroot 中构建 Live ISO
+        run: |
+          sudo chroot /srv/void-rootfs /bin/bash -lc "
+            cd /github/workspace
+            make live-iso-all-print live-iso-all \
+              SUDO= \
+              REPOSITORY=$REPOSITORY \
+              DATECODE=\$DATECODE \
+              LIVE_ARCHS=x86_64 \
+              LIVE_FLAVORS=$LIVE_FLAVOR
+          "
+
+      - name: 卸载 pseudo-filesystems
+        run: |
+          for fs in dev/pts dev proc sys run; do
+            sudo umount /srv/void-rootfs/$fs
+          done
+
+      - name: 打包并上传 ISO
+        run: |
+          cd /github/workspace
+          make dist DATECODE=$DATECODE
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-iso-x86_64-${{ env.LIVE_FLAVOR }}-${{ env.DATECODE }}
+          path: distdir-${{ env.DATECODE }}/*
