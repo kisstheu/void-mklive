@@ -16,7 +16,6 @@ jobs:
     env:
       REPOSITORY: https://repo-ci.voidlinux.org/current
       LIVE_FLAVOR: ${{ github.event.inputs.live_flavor }}
-      XBPS_TARGET_ARCH: x86_64
     steps:
       - name: Checkout 源码
         uses: actions/checkout@v4
@@ -35,6 +34,8 @@ jobs:
             | sudo tar -xJ --strip-components=1 -C /
 
       - name: Bootstrap Void 根文件系统
+        env:
+          XBPS_TARGET_ARCH: x86_64
         run: |
           sudo mkdir -p /srv/void-rootfs
           sudo mkdir -p /srv/void-rootfs/var/db/xbps/keys
