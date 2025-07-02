@@ -71,7 +71,7 @@ jobs:
 
       - name: Install mklive 依赖工具
         run: |
-          xbps-install -SyuR "${{ needs.prepare.outputs.mirror }}/current" xbps \
+          xbps-install -SyuR "${{ needs.prepare.outputs.mirror }}/current" xbps gcc-libs \
           && xbps-install -yuR "${{ needs.prepare.outputs.mirror }}/current" \
           && xbps-install -yuR "${{ needs.prepare.outputs.mirror }}/current" \
              bash make git kmod xz lzo \
