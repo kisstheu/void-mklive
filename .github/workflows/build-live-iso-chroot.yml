@@ -34,18 +34,16 @@ jobs:
             | sudo tar -xJ --strip-components=1 -C /
 
       - name: Bootstrap Void 根文件系统
-        env:
-          XBPS_TARGET_ARCH: x86_64
         run: |
           sudo mkdir -p /srv/void-rootfs
           sudo mkdir -p /srv/void-rootfs/var/db/xbps/keys
           sudo cp -a $GITHUB_WORKSPACE/keys/* /srv/void-rootfs/var/db/xbps/keys/
           # 同步索引
-          sudo  xbps-install -S \
+          sudo XBPS_TARGET_ARCH=x86_64 xbps-install -S \
             -R $REPOSITORY \
             -r /srv/void-rootfs
           # 安装基础包
-          sudo  xbps-install -y \
+          sudo XBPS_TARGET_ARCH=x86_64 xbps-install -y \
             -R $REPOSITORY \
             -r /srv/void-rootfs \
             base-system bash make git kmod \
