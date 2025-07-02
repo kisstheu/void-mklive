@@ -48,7 +48,8 @@ jobs:
             -r /srv/void-rootfs \
             base-system bash make git kmod \
             dosfstools e2fsprogs xz lzo \
-            qemu-user-static binfmt-support
+            qemu-user-static binfmt-support \
+            ca-certificates
 
       - name: 挂载 pseudo-filesystems
         run: |
