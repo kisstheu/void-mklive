@@ -31,17 +31,17 @@ jobs:
       - name: Parse live_flavors into JSON array
         id: parse_flavors
         run: |
-          # 1) 取输入或回退到默认值
           flavors="${{ github.event.inputs.live_flavors }}"
           if [ -z "$flavors" ]; then
             flavors="base xfce"
           fi
 
-          # 2) 切分空格并输出为 JSON 数组
+          # 用 -s 读入整个字符串、-R raw 输入、-c 压缩输出
           json_arr=$(printf '%s' "$flavors" \
-            | jq -R -s 'split("\\s+")')
+            | jq -R -s -c 'split("\\s+")')
 
           echo "live_flavors=$json_arr" >>"$GITHUB_OUTPUT"
+
 
       - name: Debug print
         if: ${{ always() }}
