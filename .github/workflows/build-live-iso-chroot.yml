@@ -90,11 +90,11 @@ jobs:
             chroot /srv/void-rootfs /bin/bash -lc '
               cd /workspace
               make live-iso-all-print live-iso-all \
-                SUDO= \
-                REPOSITORY='"$REPOSITORY"' \
-                DATECODE='"$DATECODE"' \
-                LIVE_ARCHS=x86_64 \
-                LIVE_FLAVORS='"$LIVE_FLAVOR"'
+                  SUDO= \
+                  REPOSITORY='"$REPOSITORY"' \
+                  DATECODE='"$DATECODE"' \
+                  LIVE_ARCHS=x86_64 \
+                  LIVE_FLAVORS='"$LIVE_FLAVOR"'
             '
 
       
