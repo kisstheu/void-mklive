@@ -50,6 +50,8 @@ jobs:
             dosfstools e2fsprogs xz lzo \
             qemu-user-static binfmt-support 
 
+          sudo xbps-reconfigure -r /srv/void-rootfs -fa
+
       - name: 挂载 pseudo-filesystems
         run: |
           # 1) 建挂载点（目录）
@@ -81,7 +83,6 @@ jobs:
         run: |
           sudo chroot /srv/void-rootfs /bin/bash -lc "
             cd /workspace
-            export XBPS_SKIP_SSL_VERIFY=1
             make live-iso-all-print live-iso-all \
               SUDO= \
               REPOSITORY=$REPOSITORY \
