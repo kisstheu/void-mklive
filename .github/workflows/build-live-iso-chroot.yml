@@ -6,7 +6,7 @@ on:
       live_flavor:
         description: "Live ISO 变体 (例如：base 或 xfce)"
         required: false
-        default: "base"
+        default: "xfce"
         type: string
 
 jobs:
