@@ -52,19 +52,25 @@ jobs:
 
       - name: 挂载 pseudo-filesystems
         run: |
-          # 1) 先在 rootfs 下创建挂载点
-          sudo mkdir -p /srv/void-rootfs/{dev,dev/pts,proc,sys,run,etc}
+          # 1) 建挂载点（目录）
+          sudo mkdir -p /srv/void-rootfs/{dev/pts,dev,proc,sys,run,etc}
       
-          # 2) 再做 bind-mount
+          # 2) bind-mount 目录型 pseudo-fs
           for fs in dev dev/pts proc sys run; do
             sudo mount --bind /$fs /srv/void-rootfs/$fs
           done
       
-          # 3) 同步 DNS 配置
+          # 3) 同步 DNS——两种做法任选一种
+          ## A. bind-mount（需先 touch）
+          sudo touch /srv/void-rootfs/etc/resolv.conf
           sudo mount --bind /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
+      
+          ## B. 或者简单复制（不 mount）
+          # sudo cp /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
+      
 
 
-
+      
 
 
       - name: 在 chroot 中构建 Live ISO
