@@ -87,4 +87,3 @@ jobs:
         with:
           name: void-iso-${{ matrix.arch }}-${{ matrix.flavor }}-${{ needs.prepare.outputs.datecode }}Add commentMore actions
           path: distdir-${{ needs.prepare.outputs.datecode }}/*
-          if-no-files-found: error*
