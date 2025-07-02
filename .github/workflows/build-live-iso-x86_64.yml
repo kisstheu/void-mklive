@@ -62,7 +62,7 @@ jobs:
         flavor: ${{ fromJson(needs.prepare.outputs.live_flavors) }}
 
     container:
-      image: "ghcr.io/kisstheu/void-mklive:20250701R2"
+      image: "ghcr.io/kisstheu/void-mklive:20250702R1"
       options: --privileged
       volumes:
         - /dev:/dev
