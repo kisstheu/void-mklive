@@ -37,11 +37,11 @@ jobs:
         run: |
           sudo mkdir -p /srv/void-rootfs
           # 同步索引
-          sudo xbps-install -S \
+          sudo XBPS_TARGET_ARCH=x86_64 xbps-install -S \
             -R $REPOSITORY \
             -r /srv/void-rootfs
           # 安装基础包
-          sudo xbps-install -y \
+          sudo XBPS_TARGET_ARCH=x86_64 xbps-install -y \
             -R $REPOSITORY \
             -r /srv/void-rootfs \
             base-system bash make git kmod \
