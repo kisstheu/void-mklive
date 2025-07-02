@@ -69,21 +69,24 @@ jobs:
           # sudo cp /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
       
 
-
-      
-
+      - name: Bind-mount workspace into rootfs
+        run: |
+          sudo mkdir -p /srv/void-rootfs/workspace
+          sudo mount --bind $GITHUB_WORKSPACE /srv/void-rootfs/workspace
 
       - name: 在 chroot 中构建 Live ISO
         run: |
           sudo chroot /srv/void-rootfs /bin/bash -lc "
-            cd /github/workspace
+            cd /workspace
             make live-iso-all-print live-iso-all \
               SUDO= \
               REPOSITORY=$REPOSITORY \
-              DATECODE=\$DATECODE \
+              DATECODE=$DATECODE \
               LIVE_ARCHS=x86_64 \
               LIVE_FLAVORS=$LIVE_FLAVOR
           "
+
+      
 
       - name: 卸载 pseudo-filesystems
         run: |
