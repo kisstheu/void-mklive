@@ -60,14 +60,14 @@ jobs:
             sudo mount --bind /$fs /srv/void-rootfs/$fs
           done
       
-          # 3) 同步 DNS——两种做法任选一种
-          ## A. bind-mount（需先 touch）
+          # 3) 同步 DNS
           sudo touch /srv/void-rootfs/etc/resolv.conf
           sudo mount --bind /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
       
-          ## B. 或者简单复制（不 mount）
-          # sudo cp /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
-      
+      - name: Ensure /tmp inside rootfs        
+        run: |
+          sudo mkdir -p /srv/void-rootfs/tmp
+          sudo chmod 1777 /srv/void-rootfs/tmp      
 
       - name: Bind-mount workspace into rootfs
         run: |
