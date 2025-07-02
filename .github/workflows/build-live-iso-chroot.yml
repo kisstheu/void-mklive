@@ -50,18 +50,20 @@ jobs:
             dosfstools e2fsprogs xz lzo \
             qemu-user-static binfmt-support
 
-            - name: 挂载 pseudo-filesystems
-              run: |
-                # 1) 先在 rootfs 下创建挂载点
-                sudo mkdir -p /srv/void-rootfs/{dev,dev/pts,proc,sys,run,etc}
-            
-                # 2) 再做 bind-mount
-                for fs in dev dev/pts proc sys run; do
-                  sudo mount --bind /$fs /srv/void-rootfs/$fs
-                done
-            
-                # 3) 同步 DNS 配置
-                sudo mount --bind /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
+      - name: 挂载 pseudo-filesystems
+        run: |
+          # 1) 先在 rootfs 下创建挂载点
+          sudo mkdir -p /srv/void-rootfs/{dev,dev/pts,proc,sys,run,etc}
+      
+          # 2) 再做 bind-mount
+          for fs in dev dev/pts proc sys run; do
+            sudo mount --bind /$fs /srv/void-rootfs/$fs
+          done
+      
+          # 3) 同步 DNS 配置
+          sudo mount --bind /etc/resolv.conf /srv/void-rootfs/etc/resolv.conf
+
+
 
 
 
