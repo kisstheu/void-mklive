@@ -48,8 +48,7 @@ jobs:
             -r /srv/void-rootfs \
             base-system bash make git kmod \
             dosfstools e2fsprogs xz lzo \
-            qemu-user-static binfmt-support \
-            ca-certificates
+            qemu-user-static binfmt-support 
 
       - name: 挂载 pseudo-filesystems
         run: |
@@ -74,6 +73,10 @@ jobs:
         run: |
           sudo mkdir -p /srv/void-rootfs/workspace
           sudo mount --bind $GITHUB_WORKSPACE /srv/void-rootfs/workspace
+          sudo mkdir -p /srv/void-rootfs/etc/ssl/certs
+          sudo mount --bind /etc/ssl/certs/ca-certificates.crt \
+               /srv/void-rootfs/etc/ssl/certs/ca-certificates.crt
+
 
       - name: 在 chroot 中构建 Live ISO
         run: |
