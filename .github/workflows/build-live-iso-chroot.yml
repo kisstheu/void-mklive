@@ -37,6 +37,8 @@ jobs:
       - name: Bootstrap Void 根文件系统
         run: |
           sudo mkdir -p /srv/void-rootfs
+          sudo mkdir -p /srv/void-rootfs/var/db/xbps/keys
+          sudo cp -a $GITHUB_WORKSPACE/keys/* /srv/void-rootfs/var/db/xbps/keys/
           # 同步索引
           sudo  xbps-install -S \
             -R $REPOSITORY \
